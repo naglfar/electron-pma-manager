@@ -1,35 +1,21 @@
 <?php
-/**
- * phpMyAdmin sample configuration, you can use it as base for
- * manual configuration. For easier setup you can use setup/
- *
- * All directives are explained in documentation in the doc/ folder
- * or at <https://docs.phpmyadmin.net/>.
- */
-
 declare(strict_types=1);
 
-/**
- * This is needed for cookie based authentication to encrypt password in
- * cookie. Needs to be 32 chars long.
- */
-$cfg['blowfish_secret'] = ''; /* YOU MUST FILL IN THIS FOR COOKIE AUTH! */
+// TODO: restrict access to client via key in db
+// TODO: generate on startup / key in db
+$cfg['blowfish_secret'] = 'Èzh.õ3NQ§÷[¦W©Æ/Ð^îqfÞ¡¨»3Q5ªä"*Ìx2Í9#]]±ï?:Ä*âØZ/CQÞ)oúTþY2`§øì\Tï!pk±aïÒ¶©¿úÆ÷ºt7kí\>__aZ!¢ö¿¢j:g>ï¼ÑÌ§àäØÒ*ì}î>JoSUÒéó[â^ªk¿5';
 
-/**
- * Servers configuration
- */
 $i = 0;
 
 try {
 	$db = new SQLite3('../db.sqlite');
+
 	$res = $db->query('SELECT * FROM tunnels t LEFT JOIN connections c ON t.connection = c.id');
 
 	while($row = $res->fetchArray()) {
 		$i += 1;
-		// $cfg['Servers'][$i]['verbose'] = $row['name'];
+		$cfg['Servers'][$i]['verbose'] = $row['name'];
 		$cfg['Servers'][$i]['auth_type'] = 'config';
-		// $cfg['Servers'][$i]['auth_type'] = 'signon';
-		// $cfg['Servers'][$i]['SignonScript'] = './signon-script.php';
 		$cfg['Servers'][$i]['host'] = '127.0.0.1';
 		$cfg['Servers'][$i]['port'] = $row['port'];
 		$cfg['Servers'][$i]['user'] = $row['mysql_user'];

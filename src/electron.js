@@ -3,34 +3,20 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { app, BrowserWindow, globalShortcut, ipcMain } = require('electron')
+const { app, BrowserWindow, globalShortcut, ipcMain, dialog } = require('electron')
 const settings = require('electron-settings');
 const PHPServer = require('php-server-manager');
 const knex = require('knex');
 const tunnel = require('tunnel-ssh');
 const SSHConfig = require('ssh-config');
-const { exit } = require('process');
 
+const dbConfig = require('./database/knexfile.js');
+let dbInstance;
 const isDevelopment = process.env.NODE_ENV !== 'production'
 
-const dbConfig = {
-	client: 'sqlite3',
-	connection: {
-		filename: `${__dirname}/db.sqlite`,
-	},
-	useNullAsDefault: true,
-};
 
-// TODO: create database if none exists
-// if (!fs.existsSync(`${__dirname}/db.sqlite`)) {
-// 	// const instance = knex(dbConfig);
-// 	console.log(`${__dirname}/db.sqlite`);
-// 	// instance.raw('CREATE TABLE "connections";');
-// }
-
-
-const server = new PHPServer({
-	port: 5555,
+const phpServer = new PHPServer({
+	port: 4405,
 	directory: isDevelopment ? `${__dirname}/` : `${__dirname}/../dist`,
 	stdio: 'ignore',
 	directives: {
@@ -43,21 +29,23 @@ const tunnels = [];
 
 async function createWindow() {
 
-	// start php server
-	server.run();
+	phpServer.run();
 
-	// Create the browser window.
 	const win = new BrowserWindow({
 		fullscreen: false,
 		autoHideMenuBar: false,
 		webPreferences: {
 			preload: path.join(__dirname, 'electron-preload.js'),
 			webviewTag: true,
-		}
+		},
+		autoHideMenuBar: true,
+		menuBarVisible: false,
+		icon: `${__dirname}/assets/logo.png`,
 	});
-	win.removeMenu();
 
-	win.webContents.session.webRequest.onHeadersReceived({ urls: [ "*://*/*" ] },	(d, c) => {
+	win.webContents.session.webRequest.onHeadersReceived(
+		{ urls: [ "*://*/*" ] },
+		(d, c) => {
 			if (d.responseHeaders['X-Frame-Options']){
 				delete d.responseHeaders['X-Frame-Options'];
 			} else if (d.responseHeaders['x-frame-options']) {
@@ -68,17 +56,17 @@ async function createWindow() {
 	);
 
 	ipcMain.on('set-title', (event, title) => {
-		const webContents = event.sender
-		const win = BrowserWindow.fromWebContents(webContents)
-		win.setTitle(title)
+		const webContents = event.sender;
+		const win = BrowserWindow.fromWebContents(webContents);
+		win.setTitle(title);
 	});
 
 	ipcMain.handle('new-connection', async (event, host, connectionId) => {
-		const instance = knex(dbConfig);
+
 		let port = 3306;
 
 		if (host) {
-			const query = instance.table('tunnels').max('port as port').first();
+			const query = dbInstance.table('tunnels').max('port as port').first();
 			const lastPort = await query;
 			port = lastPort.port && lastPort.port + 1 || 4406;
 
@@ -112,63 +100,74 @@ async function createWindow() {
 			try {
 				const tnl = tunnel(config, (error, tnl) => {});
 				tunnels.push(tnl);
-				await instance.table('tunnels').insert({connection: connectionId, port: port});
+				await dbInstance.table('tunnels').insert({connection: connectionId, port: port});
 			} catch (err) {
 				console.log(err);
 			}
 		} else {
 
-			await instance.table('tunnels').insert({connection: connectionId, port: port});
+			await dbInstance.table('tunnels').insert({connection: connectionId, port: port});
 		}
 
 		// console.log(config);
 	});
 
+	ipcMain.handle('save-connection', async (event, connection) => {
+		const query = dbInstance.table('connections').insert({...connection}).onConflict('id').merge();
+		return await query;
+	});
+
+	ipcMain.handle('delete-connection', async (event, connectionId) => {
+		const query = dbInstance.table('connections').where({'id': connectionId}).del();
+		return await query;
+	});
+
 	ipcMain.handle('get-connections', async () => {
-		const instance = knex(dbConfig);
-		const query = instance.table('connections').select('*').orderBy('name');
+		const query = dbInstance.table('connections').select('*').orderBy('name');
 		return await query;
 	});
 	ipcMain.handle('get-tunnels', async () => {
-		const instance = knex(dbConfig);
-		const query = instance.table('tunnels').select('*');
+		const query = dbInstance.table('tunnels').select('*');
 		return await query;
 	})
 
 	if (isDevelopment) {
-		win.loadURL('http://' + server.host + ':3000/');
+		win.loadURL('http://' + phpServer.host + ':3000/');
 	} else {
-		win.loadURL('http://' + server.host + ':' + server.port + '/');
+		win.loadURL('http://' + phpServer.host + ':' + phpServer.port + '/');
 	}
 }
 
-const preQuit = async () => {
+const quit = async () => {
 	tunnels.forEach(tunnel => tunnel.close());
-	server.close();
-	const instance = knex(dbConfig);
-	await instance.table('tunnels').del();
+	phpServer.close();
+	await dbInstance.table('tunnels').del();
+	await dbInstance.destroy();
+	app.quit()
 }
 
 // Quit when all windows are closed.
-app.on('window-all-closed', async () => {
-	preQuit();
-	app.quit()
-});
+app.on('window-all-closed', quit);
 
-app.on('ready', () => {
-	const fn = () => {
-		preQuit();
-		app.quit()
-	};
+app.on('ready', async () => {
+
+	dbInstance = knex(dbConfig);
+	try {
+		await dbInstance.migrate.latest();
+	} catch(err) {
+		dialog.showErrorBox('DB Error', 'Your database seems to be broken, sorry.');
+		app.quit();
+	}
+
 	if (process.platform === 'win32') {
 		process.on('message', (data) => {
 			if (data === 'graceful-exit') {
-				fn();
+				quit();
 			}
 		})
 	} else {
-		process.on('SIGINT', fn);
-		process.on('SIGTERM', fn);
+		process.on('SIGINT', quit);
+		process.on('SIGTERM', quit);
 	}
 
 	createWindow();

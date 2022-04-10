@@ -8,7 +8,10 @@
     "build-ts": "vue-tsc --noEmit && vite build",
     "build": "vite build",
     "preview": "vite preview",
-    "electron": "electron ."
+    "electron": "electron .",
+    "knex:migrate:make": "knex --knexfile src/database/knexfile.js migrate:make",
+    "knex:migrate:latest": "knex --knexfile src/database/knexfile.js migrate:latest",
+    "knex:migrate:rollback": "knex --knexfile src/database/knexfile.js migrate:rollback"
   },
   "dependencies": {
     "@vscode/sqlite3": "^5.0.8",
@@ -20,6 +23,7 @@
     "sanitize.css": "^13.0.0",
     "sass": "^1.50.0",
     "ssh-config": "^4.1.4",
+    "ts-node": "^10.7.0",
     "tunnel-ssh": "^4.1.6",
     "vue": "^3.2.25",
     "vue-universal-modal": "^1.1.3",

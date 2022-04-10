@@ -4,15 +4,7 @@
 			<button class="btn" @click="showConnectionList">+</button>
 		</template>
 	</Tabs>
-	<Modal
-   	v-model="showConnectionModal"
-    	:close="() => showConnectionModal = false"
-  	>
-		<div class="modal">
-			<ConnectionList ref="list" @select="newConnection" />
-			<button @click="showConnectionModal = false">close</button>
-		</div>
-	</Modal>
+	<ConnectionList ref="list" @select="newConnection" />
 </template>
 
 <script setup lang="ts">
@@ -29,15 +21,7 @@ const store = useStore();
 
 let showConnectionModal = ref(false);
 const showConnectionList = async () => {
-	const connections = await (<any>window).electronAPI.getConnections();
-	store.connections = connections;
-	showConnectionModal.value = true;
-	// wait for modal to render, seemingly needs two ticks
-	nextTick(() => {
-		nextTick(() => {
-			list.value?.focus();
-		})
-	})
+	list.value?.show();
 }
 
 const newConnection = async (id: number) => {
@@ -49,15 +33,23 @@ const newConnection = async (id: number) => {
 	tabs.value?.newTab(connection.name, index+1);
 }
 
-onMounted(() => {
-	tabs.value?.newTab('tab1', 1);
-	nextTick(() => {
-		tabs.value?.newTab('tab2', 2);
-		nextTick(() => {
-			tabs.value?.newTab('tab3', 2);
-		})
-	});
-	// showConnectionList();
+onMounted(async () => {
+	// debug open tabs
+	// tabs.value?.newTab('tab1', 1);
+	// nextTick(() => {
+	// 	tabs.value?.newTab('tab2', 2);
+	// 	nextTick(() => {
+	// 		tabs.value?.newTab('tab3', 2);
+	// 	})
+	// });
+	store.connections = await (<any>window).electronAPI.getConnections();
+	const favorites = store.connections.filter((c) => c.favorite);
+	favorites.forEach((c) => {
+		newConnection(c.id);
+	})
+	if (favorites.length == 0) {
+		showConnectionList();
+	}
 });
 
 </script>
@@ -80,8 +72,14 @@ body, html {
 	width: 100%;
 }
 
-.modal {
+#modals {
+	position: relative;
+	z-index: 10;
+}
+
+.o-modal {
 	display: flex;
+	position: relative;
 	flex-direction: column;
 	gap: 12px;
 	width: 100%;
@@ -90,24 +88,35 @@ body, html {
 	padding: 16px;
 	box-sizing: border-box;
 	background-color: #fff;
-	font-size: 20px;
-	text-align: center;
 	border-radius: 3px;
+}
 
-	button {
-		border: 1px solid #444;
+.o-btn {
+	border: 1px solid #444;
+	// background-color: white;
+	background-color: #444;
+	color: white;
+	border-radius: 3px;
+	padding: 4px 12px;
+	cursor: pointer;
+	transition: background-color 0.1s, color 0.1s;
+
+	&:hover {
+		background-color: #777;
+		// color: #444;
+	}
+
+	&--secondary {
 		background-color: white;
-		border-radius: 3px;
-		padding: 4px 12px;
-		align-self: end;
-		cursor: pointer;
-		transition: background-color 0.1s, color 0.1s;
+		color: #444;
 
 		&:hover {
-			background-color: #444;
-			color: white;
+			background-color: #ddd;
+			// color: white;
 		}
-
+	}
+	&[disabled] {
+		opacity: 0.3;
 	}
 }
 </style>
