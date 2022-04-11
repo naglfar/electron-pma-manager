@@ -13,25 +13,47 @@
 		</template>
 	</vue3-tabs-chrome>
 	<div class="c-tabs__container">
-		<div class="c-tabs__content" v-for="tab in tabs" :key="tab.key" v-show="tab.key == activeTab">
+		<div
+			class="c-tabs__content"
+			v-for="tab in tabs"
+			:key="tab.key"
+			v-show="tab.key == activeTab"
+		>
 			<div class="c-tabs__contentloader"><div></div><div></div></div>
-			<webview style="position: relative;" :src="`http://localhost:4405/pma/?server=${tab.server}`" />
+			<webview
+				:ref="(el) => { webviews[tab.key] = el; }"
+				style="position: relative;"
+				:src="`http://localhost:4405/pma/?server=${tab.server}`"
+				:preload="`file://${dirname}/webview-preload.js`"
+			/>
+		</div>
+		<div class="c-search" v-show="searchShown">
+			<div class="c-search__controls">
+				<input ref="searchInput" type="search" class="c-search__input" @input="doSearch" @keydown.enter="searchInputEnter">
+			</div>
+			<div class="c-search__close" @click="hideSearch">X</div>
 		</div>
 	</div>
 </div>
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, Ref, watchEffect } from 'vue'
+import { nextTick, onMounted, onUnmounted, reactive, ref, Ref, watchEffect } from 'vue'
 import 'vue3-tabs-chrome/dist/vue3-tabs-chrome.css'
 import Vue3TabsChrome, {Tab} from 'vue3-tabs-chrome'
+import searchInPage from 'electron-in-page-search';
 import { useStore } from '../store';
+import { stringLiteralTypeAnnotation } from '@babel/types';
 
 const store = useStore();
 
 const tabRef = ref()
 const activeTab = ref('')
 const tabs: Ref<Array<Tab>> = ref([]);
+const webviews:Ref<{[key: string]: any}> = ref({});
+const searchInput:Ref<HTMLInputElement|null> = ref(null);
+const searchShown = ref(false);
+const searchLastInput = ref('');
 
 const setTabRef = (el: HTMLElement) => {
 	tabRef.value = el
@@ -45,6 +67,21 @@ const newTab = (label: string, server: number) => {
 		server
 	});
 	activeTab.value = key
+
+	nextTick(() => {
+		const webview = webviews.value[key];
+		webview.addEventListener('dom-ready', async () => {
+			// webview.openDevTools();
+			webview.addEventListener('ipc-message', (e) => {
+				if (e.channel === 'webview-keypress') {
+					if (e.args[0] == 'ctrl-f') {
+						showSearch();
+						doSearch();
+					}
+				}
+			})
+		})
+	});
 }
 
 const mouseMiddle = (e: MouseEvent) => {
@@ -71,6 +108,59 @@ const mouseWheel = (e: WheelEvent) => {
 	}
 }
 
+
+// const searchParams = ref({});
+const showSearch = () => {
+	searchShown.value = true;
+	searchInput.value!.value = searchLastInput.value;
+	nextTick(() => {
+		searchInput.value?.focus();
+	})
+};
+const hideSearch = () => {
+	const webview = webviews.value[activeTab.value];
+	webview?.stopFindInPage('clearSelection');
+	searchShown.value = false;
+}
+const doSearch = (forward = true) => {
+	const searchText = searchInput.value?.value || '';
+	const webview = webviews.value[activeTab.value];
+	if (searchText) {
+		webview?.findInPage(searchText, {forward});
+	} else {
+		webview?.stopFindInPage('clearSelection');
+	}
+};
+
+const searchHotkey = (e: KeyboardEvent) => {
+	if (e.ctrlKey && e.key == 'f') {
+		showSearch();
+		doSearch();
+	}
+}
+const searchInputKeydown = (e: KeyboardEvent) => {
+	if (e.key == 'Escape') {
+		searchLastInput.value = searchInput.value?.value || '';
+		hideSearch();
+	}
+};
+const searchInputEnter = (e: KeyboardEvent) => {
+	if (e.key == 'Enter') {
+		doSearch(!e.shiftKey);
+	}
+};
+
+let dirname = ref('');
+onMounted(async () => {
+	dirname.value = await (<any>window).electronAPI.getDirname();
+	document.addEventListener('keydown', searchHotkey);
+	searchInput.value?.addEventListener('keydown', searchInputKeydown)
+});
+onUnmounted(() => {
+	document.removeEventListener('keyup', searchHotkey);
+	searchInput.value?.removeEventListener('keydown', searchInputKeydown)
+})
+
 defineExpose({ newTab });
 </script>
 
@@ -81,9 +171,19 @@ defineExpose({ newTab });
 	height: 100%;
 	width: 100%;
 
-	&__container, &__container * {
+	&__container {
+		display: flex;
+		flex-direction: column;
 		height: 100%;
 		width: 100%;
+
+		.c-tabs__content {
+			flex: 1;
+
+			webview {
+				height: 100%;
+			}
+		}
 	}
 
 	&__content {
@@ -136,5 +236,32 @@ defineExpose({ newTab });
 	button {
 		cursor: pointer;
 	}
+}
+.c-search {
+	background-color: #f1f1f1;
+	border-top: 1px solid #bbb;
+	display: flex;
+	justify-content: space-between;
+	padding: 8px;
+
+	&__controls {
+
+	}
+
+	input {
+		padding: 4px 8px;
+	}
+
+	&__close {
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		height: 100%;
+		aspect-ratio: 1;
+		cursor: pointer;
+		font-size: 16px;
+		line-height: 1em;
+	}
+
 }
 </style>

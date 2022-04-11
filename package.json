@@ -4,11 +4,12 @@
   "version": "0.0.0",
   "main": "src/electron.js",
   "scripts": {
-    "dev": "vite",
-    "build-ts": "vue-tsc --noEmit && vite build",
-    "build": "vite build",
-    "preview": "vite preview",
+    "vite": "vite",
     "electron": "electron .",
+    "dev": "vite & electron .",
+    "build": "vite build",
+    "build-ts": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview",
     "knex:migrate:make": "knex --knexfile src/database/knexfile.js migrate:make",
     "knex:migrate:latest": "knex --knexfile src/database/knexfile.js migrate:latest",
     "knex:migrate:rollback": "knex --knexfile src/database/knexfile.js migrate:rollback"

@@ -7,4 +7,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 	deleteConnection: (connectionId) => ipcRenderer.invoke('delete-connection', connectionId),
 	getConnections: () => ipcRenderer.invoke('get-connections'),
 	getTunnels: () => ipcRenderer.invoke('get-tunnels'),
+	getDirname: () => ipcRenderer.invoke('get-dirname'),
+	// getWebviewContents: (webContentsId) => ipcRenderer.invoke('get-webview-contents', webContentsId),
+	// webviewKeypress: () => ipcRenderer.send('webview-keypress'),
 })

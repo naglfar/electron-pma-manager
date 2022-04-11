@@ -126,10 +126,15 @@ async function createWindow() {
 		const query = dbInstance.table('connections').select('*').orderBy('name');
 		return await query;
 	});
+
 	ipcMain.handle('get-tunnels', async () => {
 		const query = dbInstance.table('tunnels').select('*');
 		return await query;
-	})
+	});
+
+	ipcMain.handle('get-dirname', () => {
+		return __dirname;
+	});
 
 	if (isDevelopment) {
 		win.loadURL('http://' + phpServer.host + ':3000/');
