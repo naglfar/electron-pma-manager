@@ -1,12 +1,10 @@
-import { ref } from 'vue';
+import { ref, Ref } from 'vue';
 import { defineStore } from 'pinia';
 
 export const useStore = defineStore('store', () => {
-	const activeConnections = ref([]);
 	const activeTab = ref('');
-	const connections = ref([]);
+	const connections: Ref<Array<Connection>> = ref([]);
 	return {
-		activeConnections,
 		activeTab,
 		connections,
 	}

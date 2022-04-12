@@ -70,9 +70,9 @@ import { useStore } from '../store';
 const store = useStore();
 
 let showModal = ref(false);
-const selected:Ref<Object|null> = ref(null);
+const selected:Ref<Connection|undefined> = ref();
 
-let connections = ref([]);
+let connections:Ref<Array<Connection>> = ref([]);
 
 const fetchConnections = async () => {
 	store.connections = await (<any>window).electronAPI.getConnections();
@@ -88,15 +88,19 @@ const fetchConnections = async () => {
 const show = async () => {
 	showModal.value = true;
 	fetchConnections();
-	selected.value = null;
+	selected.value = undefined;
 }
 
-const select = (connection) => {
+const select = (connection: Connection) => {
 	selected.value = connection
 }
 
 const add = async() => {
-	const c = {'name': 'New connection'};
+	const newId = connections.value.reduce((id, c) => { return Math.max(id, c.id) }, 0) + 1;
+	const c: Connection = {
+		'id': newId,
+		'name': 'New connection',
+	};
 	connections.value.push(c);
 	selected.value = c;
 }
@@ -110,9 +114,11 @@ const remove = async() => {
 
 const save = async () => {
 	const c = toRaw(unref(selected));
-	c.favorite = c.favorite ? 1 : 0;
-	await (<any>window).electronAPI.saveConnection(c);
-	await fetchConnections();
+	if (c) {
+		// c.favorite = c.favorite ? 1 : 0;
+		await (<any>window).electronAPI.saveConnection(c);
+		await fetchConnections();
+	}
 }
 
 

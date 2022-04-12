@@ -29,7 +29,7 @@
 		</div>
 		<div class="c-search" v-show="searchShown">
 			<div class="c-search__controls">
-				<input ref="searchInput" type="search" class="c-search__input" @input="doSearch" @keydown.enter="searchInputEnter">
+				<input ref="searchInput" type="search" class="c-search__input" @input="() => doSearch" @keydown.enter="searchInputEnter">
 			</div>
 			<div class="c-search__close" @click="hideSearch">X</div>
 		</div>
@@ -41,15 +41,16 @@
 import { nextTick, onMounted, onUnmounted, reactive, ref, Ref, watchEffect } from 'vue'
 import 'vue3-tabs-chrome/dist/vue3-tabs-chrome.css'
 import Vue3TabsChrome, {Tab} from 'vue3-tabs-chrome'
-import searchInPage from 'electron-in-page-search';
-import { useStore } from '../store';
-import { stringLiteralTypeAnnotation } from '@babel/types';
 
-const store = useStore();
+interface PMATab extends Tab {
+   server: number;
+};
+// FIXME: for typescript
+let webview: any;
 
-const tabRef = ref()
+const tabRef = ref();
 const activeTab = ref('')
-const tabs: Ref<Array<Tab>> = ref([]);
+const tabs: Ref<Array<PMATab>> = ref([]);
 const webviews:Ref<{[key: string]: any}> = ref({});
 const searchInput:Ref<HTMLInputElement|null> = ref(null);
 const searchShown = ref(false);
@@ -72,7 +73,8 @@ const newTab = (label: string, server: number) => {
 		const webview = webviews.value[key];
 		webview.addEventListener('dom-ready', async () => {
 			// webview.openDevTools();
-			webview.addEventListener('ipc-message', (e) => {
+			// FIXME: type?
+			webview.addEventListener('ipc-message', (e: any) => {
 				if (e.channel === 'webview-keypress') {
 					if (e.args[0] == 'ctrl-f') {
 						showSearch();

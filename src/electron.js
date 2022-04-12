@@ -113,6 +113,8 @@ async function createWindow() {
 	});
 
 	ipcMain.handle('save-connection', async (event, connection) => {
+		// convert boolean to sqlite integer
+		connection.favorite = connection.favorite ? 1 : 0;
 		const query = dbInstance.table('connections').insert({...connection}).onConflict('id').merge();
 		return await query;
 	});
@@ -124,7 +126,10 @@ async function createWindow() {
 
 	ipcMain.handle('get-connections', async () => {
 		const query = dbInstance.table('connections').select('*').orderBy('name');
-		return await query;
+		const connections = await query;
+		// convert sqlite integer field to boolean
+		connections.forEach(c => c.favorite = !!c.favorite);
+		return connections;
 	});
 
 	ipcMain.handle('get-tunnels', async () => {

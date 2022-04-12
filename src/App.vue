@@ -27,10 +27,12 @@ const showConnectionList = async () => {
 const newConnection = async (id: number) => {
 	showConnectionModal.value = false;
 	const connection = store.connections.find(c => c.id == id);
-	await (<any>window).electronAPI.newConnection(connection.ssh_host, connection.id);
-	const tunnels = await (<any>window).electronAPI.getTunnels();
-	const index = tunnels.findIndex(tunnel => tunnel.connection == connection.id);
-	tabs.value?.newTab(connection.name, index+1);
+	if (connection) {
+		await (<any>window).electronAPI.newConnection(connection.ssh_host, connection.id);
+		const tunnels: Array<Tunnel> = await (<any>window).electronAPI.getTunnels();
+		const index = tunnels.findIndex(tunnel => tunnel.connection == connection.id);
+		tabs.value?.newTab(connection.name, index+1);
+	}
 }
 
 onMounted(async () => {

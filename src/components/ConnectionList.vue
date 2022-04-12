@@ -46,7 +46,7 @@ const store = useStore();
 const input = ref<HTMLInputElement | null>(null);
 const connectionManager = ref<typeof ConnectionManager | null>(null);
 let showModal = ref(false);
-let marked: Ref<number|null> = ref(null);
+let marked: Ref<number|undefined> = ref();
 let matched: Ref<Array<any>> = ref([]);
 
 const emit = defineEmits(['select']);
@@ -63,8 +63,9 @@ const show = async () => {
 	})
 }
 
-const filter = (e) => {
-	const cs = store.connections.filter((c) => c.name.indexOf(e.target.value) != -1);
+const filter = (e: Event) => {
+	const input = e.target as HTMLInputElement;
+	const cs = store.connections.filter((c) => c.name.indexOf(input.value) != -1);
 	const c = cs[0];
 	if (c) { marked.value = c.id; }
 	matched.value = cs.map(c => c.id);
