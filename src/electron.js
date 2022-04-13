@@ -65,6 +65,9 @@ async function createWindow() {
 
 		let port = 3306;
 
+		const existing =  await dbInstance.table('tunnels').select('id').where({'connection': connectionId}).first();
+		if (existing) { return }
+
 		if (host) {
 			const query = dbInstance.table('tunnels').max('port as port').first();
 			const lastPort = await query;
@@ -88,6 +91,7 @@ async function createWindow() {
 				// console.log(host);
 				// console.log(configHost);
 				if (configHost.HostName) config.host = configHost.HostName;
+				if (configHost.Port) config.port = configHost.Port;
 				if (configHost.User) config.username = configHost.User;
 				if (configHost.IdentityFile) {
 					if (configHost.IdentityFile.startsWith('~/')) {
@@ -105,11 +109,8 @@ async function createWindow() {
 				console.log(err);
 			}
 		} else {
-
 			await dbInstance.table('tunnels').insert({connection: connectionId, port: port});
 		}
-
-		// console.log(config);
 	});
 
 	ipcMain.handle('save-connection', async (event, connection) => {

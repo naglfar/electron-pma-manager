@@ -1,31 +1,34 @@
 <template>
 	<Tabs ref="tabs">
 		<template #after>
-			<button class="btn" @click="showConnectionList">+</button>
+			<button class="btn" @click="connectionList?.show()">+</button>
+		</template>
+		<template #menu>
+			<li @click="connectionManager?.show()">Manage connections</li>
+			<li @click="settingsDialog?.show()">Settings</li>
 		</template>
 	</Tabs>
-	<ConnectionList ref="list" @select="newConnection" />
+	<ConnectionList ref="connectionList" @select="newConnection" />
+	<ConnectionManager ref="connectionManager" />
+	<SettingsDialog ref="settingsDialog" />
 </template>
 
 <script setup lang="ts">
 import Tabs from './components/Tabs.vue'
-import TabContent from './components/TabContent.vue'
 import ConnectionList from './components/ConnectionList.vue'
+import ConnectionManager from './components/ConnectionManager.vue'
+import SettingsDialog from './components/SettingsDialog.vue'
 import { useStore } from './store';
-import { nextTick, onMounted, ref, unref } from 'vue';
+import { onMounted, ref, unref } from 'vue';
 
 const tabs = ref<typeof Tabs | null>(null);
-const list = ref<typeof ConnectionList | null>(null);
+const connectionList = ref();
+const connectionManager = ref();
+const settingsDialog = ref();
 
 const store = useStore();
 
-let showConnectionModal = ref(false);
-const showConnectionList = async () => {
-	list.value?.show();
-}
-
 const newConnection = async (id: number) => {
-	showConnectionModal.value = false;
 	const connection = store.connections.find(c => c.id == id);
 	if (connection) {
 		await (<any>window).electronAPI.newConnection(connection.ssh_host, connection.id);
@@ -36,21 +39,15 @@ const newConnection = async (id: number) => {
 }
 
 onMounted(async () => {
-	// debug open tabs
-	// tabs.value?.newTab('tab1', 1);
-	// nextTick(() => {
-	// 	tabs.value?.newTab('tab2', 2);
-	// 	nextTick(() => {
-	// 		tabs.value?.newTab('tab3', 2);
-	// 	})
-	// });
-	store.connections = await (<any>window).electronAPI.getConnections();
-	const favorites = store.connections.filter((c) => c.favorite);
-	favorites.forEach((c) => {
-		newConnection(c.id);
-	})
-	if (favorites.length == 0) {
-		showConnectionList();
+	if ((<any>window).electronAPI) {
+		store.connections = await (<any>window).electronAPI.getConnections();
+		const favorites = store.connections.filter((c) => c.favorite);
+		favorites.forEach((c) => {
+			newConnection(c.id);
+		})
+		if (favorites.length == 0) {
+			connectionList.value?.show();
+		}
 	}
 });
 

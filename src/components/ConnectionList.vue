@@ -39,7 +39,7 @@
 </template>
 
 <script setup lang="ts">
-import { defineEmits, nextTick, onMounted, ref, Ref } from 'vue';
+import { nextTick, onMounted, ref, Ref } from 'vue';
 import { useStore } from '../store';
 import ConnectionManager from './ConnectionManager.vue'
 const store = useStore();
@@ -75,9 +75,6 @@ const select = (id: number) => {
 	emit('select', id);
 	showModal.value = false;
 }
-// onMounted(() => {
-// 	connectionManager.value?.show();
-// })
 
 defineExpose({ show });
 </script>

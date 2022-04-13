@@ -1,17 +1,32 @@
 <template>
 <div class="c-tabs">
- 	<vue3-tabs-chrome
-	 	:ref="setTabRef"
-		class="c-tabs__nav"
-		v-model="activeTab"
-		:tabs="tabs"
-		@mousedown.middle="mouseMiddle"
-		@mousewheel="mouseWheel"
-	>
-	 	<template #after>
-			 <slot name="after"></slot>
-		</template>
-	</vue3-tabs-chrome>
+	<nav class="c-tabs__nav">
+		<vue3-tabs-chrome
+			:ref="setTabRef"
+			v-model="activeTab"
+			:tabs="tabs"
+			class="c-tabs__bar"
+			@mousedown.middle="mouseMiddle"
+			@mousewheel="mouseWheel"
+		>
+			<template #after>
+				<slot name="after"></slot>
+			</template>
+		</vue3-tabs-chrome>
+		<div class="c-menu">
+			<button
+				class="c-menu__button"
+				ref="menuButton"
+				@mousedown="menuClick"
+			>
+				&#10247;
+			</button>
+			<ul class="c-menu__list">
+				<li @click="webviewDevtools">Open Tab Devtools</li>
+				<slot name="menu"></slot>
+			</ul>
+		</div>
+	</nav>
 	<div class="c-tabs__container">
 		<div
 			class="c-tabs__content"
@@ -38,7 +53,7 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, onMounted, onUnmounted, reactive, ref, Ref, watchEffect } from 'vue'
+import { nextTick, onMounted, onUnmounted, reactive, ref, Ref, toRaw, watchEffect } from 'vue'
 import 'vue3-tabs-chrome/dist/vue3-tabs-chrome.css'
 import Vue3TabsChrome, {Tab} from 'vue3-tabs-chrome'
 
@@ -58,7 +73,7 @@ const searchLastInput = ref('');
 
 const setTabRef = (el: HTMLElement) => {
 	tabRef.value = el
-}
+};
 
 const newTab = (label: string, server: number) => {
 	const key = 'tab' + Date.now()
@@ -84,7 +99,7 @@ const newTab = (label: string, server: number) => {
 			})
 		})
 	});
-}
+};
 
 const mouseMiddle = (e: MouseEvent) => {
 	const tabEl = (e.target as HTMLElement)?.closest('.tabs-item');
@@ -94,7 +109,7 @@ const mouseMiddle = (e: MouseEvent) => {
 			tabRef.value.removeTab(tab.key);
 		}
 	}
-}
+};
 
 const mouseWheel = (e: WheelEvent) => {
 	// e.deltaY
@@ -108,7 +123,20 @@ const mouseWheel = (e: WheelEvent) => {
 
 		}
 	}
-}
+};
+
+let menuButton = ref();
+const menuClick = () => {
+	if (menuButton.value == document.activeElement) {
+		setTimeout(() => {
+			menuButton.value.blur();
+		}, 1);
+	}
+};
+const webviewDevtools = () => {
+	const webview = webviews.value[activeTab.value];
+	webview.openDevTools();
+};
 
 
 // const searchParams = ref({});
@@ -123,7 +151,7 @@ const hideSearch = () => {
 	const webview = webviews.value[activeTab.value];
 	webview?.stopFindInPage('clearSelection');
 	searchShown.value = false;
-}
+};
 const doSearch = (forward = true) => {
 	const searchText = searchInput.value?.value || '';
 	const webview = webviews.value[activeTab.value];
@@ -172,6 +200,26 @@ defineExpose({ newTab });
 	flex-direction: column;
 	height: 100%;
 	width: 100%;
+
+	&__nav {
+		display: flex;
+	}
+
+	&__bar {
+		flex: 1;
+		button {
+			background-color: #fff;
+			border: 0;
+			border-radius: 2px;
+			aspect-ratio: 1;
+			height: 20px;
+			line-height: 20px;
+
+			&:hover {
+				background-color: #f1f1f1;
+			}
+		}
+	}
 
 	&__container {
 		display: flex;
@@ -237,6 +285,53 @@ defineExpose({ newTab });
 
 	button {
 		cursor: pointer;
+	}
+}
+.c-menu {
+	position: relative;
+	background: #dee1e6;
+	&__button {
+		height: calc(100% - 12px);
+		border: 0;
+		color: #444;
+		font-size: 24px;
+		line-height: 24px;
+		padding: 6px 1px 0 6px;
+		margin: 6px 6px 6px 0;
+		border-radius: 3px;
+		background: transparent;
+
+		&:hover {
+			background: #d1d1d1;
+		}
+
+		&:focus + ul {
+			opacity: 1;
+			z-index: 5;
+			transition: opacity 0.2s;
+		}
+	}
+	&__list {
+		position: absolute;
+		z-index: -1;
+		right: 0;
+		top: calc(100% - 6px);
+		margin: 0;
+		background-color: #f9f9f9;
+		box-shadow: 0px 0px 5px rgba(0, 0, 0, 0.3);
+		opacity: 0;
+		transition: opacity 0.2s, z-index 0s linear 0.2s;
+		text-align: left;
+
+		li {
+			padding: 6px 24px;
+			white-space: nowrap;
+			cursor: pointer;
+
+			&:hover {
+				background-color: #eee;
+			}
+		}
 	}
 }
 .c-search {
