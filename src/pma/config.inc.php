@@ -19,16 +19,13 @@ try {
 		$cfg['Servers'][$i]['host'] = '127.0.0.1';
 		$cfg['Servers'][$i]['port'] = $row['port'];
 		$cfg['Servers'][$i]['user'] = $row['mysql_user'];
-		$cfg['Servers'][$i]['password'] = $row['mysql_password'];
+		$cfg['Servers'][$i]['password'] = empty($row['mysql_password']) ? '' : $row['mysql_password'];
 		$cfg['Servers'][$i]['compress'] = true;
 		$cfg['Servers'][$i]['AllowNoPassword'] = true;
 	}
-} catch(Exception) {}
+} catch(Exception $e) {}
 
 $cfg['NavigationDisplayServers'] = false;
-
-// var_export($cfg['Servers']);
-// die();
 
 
 /**
@@ -163,5 +160,8 @@ $cfg['DefaultLang'] = 'en';
 $cfg['FilterLanguages'] = 'en';
 
 $cfg['ThemeManager'] = false;
-// $cfg['ThemeDefault'] = 'pmahomme';
 $cfg['ThemeDefault'] = 'pmahomme';
+
+$cfg['MaxNavigationItems'] = 1000;
+$cfg['MaxTableList'] = 1000;
+$cfg['MaxRows'] = 1000;
