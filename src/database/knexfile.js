@@ -4,7 +4,7 @@ module.exports = {
 		filename: `${__dirname}/../db.sqlite`,
 	},
 	migrations: {
-		extension: 'ts',
+		extension: 'js',
 		tableName: "knex_migrations",
 		directory: `${__dirname}/migrations`,
 	},

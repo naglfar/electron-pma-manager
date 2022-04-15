@@ -38,7 +38,7 @@
 			<webview
 				:ref="(el) => { webviews[tab.key] = el; }"
 				style="position: relative;"
-				:src="`http://localhost:4405/pma/?server=${tab.server}`"
+				:src="`http://localhost:${serverport || 4406}/pma/?server=${tab.server}`"
 				:preload="`file://${dirname}/webview-preload.js`"
 			/>
 		</div>
@@ -56,6 +56,12 @@
 import { nextTick, onMounted, onUnmounted, reactive, ref, Ref, toRaw, watchEffect } from 'vue'
 import 'vue3-tabs-chrome/dist/vue3-tabs-chrome.css'
 import Vue3TabsChrome, {Tab} from 'vue3-tabs-chrome'
+import { useStore } from '../store';
+
+const store = useStore();
+
+// don't change when settings change
+const serverport = store.settings.get('startingport');
 
 interface PMATab extends Tab {
    server: number;

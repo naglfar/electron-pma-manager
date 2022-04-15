@@ -19,22 +19,22 @@ import ConnectionList from './components/ConnectionList.vue'
 import ConnectionManager from './components/ConnectionManager.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
 import { useStore } from './store';
-import { onMounted, ref, unref } from 'vue';
+import { onMounted, ref, toRaw, unref } from 'vue';
 
-const tabs = ref<typeof Tabs | null>(null);
-const connectionList = ref();
-const connectionManager = ref();
-const settingsDialog = ref();
+const tabs = $ref<typeof Tabs>();
+const connectionList = $ref<typeof ConnectionList>();
+const connectionManager = $ref<typeof ConnectionManager>();
+const settingsDialog = $ref<typeof SettingsDialog>();
 
 const store = useStore();
 
 const newConnection = async (id: number) => {
 	const connection = store.connections.find(c => c.id == id);
 	if (connection) {
-		await (<any>window).electronAPI.newConnection(connection.ssh_host, connection.id);
+		await (<any>window).electronAPI.newConnection(toRaw(unref(connection)));
 		const tunnels: Array<Tunnel> = await (<any>window).electronAPI.getTunnels();
 		const index = tunnels.findIndex(tunnel => tunnel.connection == connection.id);
-		tabs.value?.newTab(connection.name, index+1);
+		tabs.newTab(connection.name, index+1);
 	}
 }
 
@@ -46,7 +46,7 @@ onMounted(async () => {
 			newConnection(c.id);
 		})
 		if (favorites.length == 0) {
-			connectionList.value?.show();
+			connectionList.show();
 		}
 	}
 });
@@ -59,6 +59,7 @@ body, html {
 	width: 100%;
 	font-family: 'Source Sans Pro', 'Roboto', sans;
 	color: #444;
+	font-size: 16px;
 }
 #app {
 	font-family: Avenir, Helvetica, Arial, sans-serif;
@@ -76,6 +77,9 @@ body, html {
 	z-index: 10;
 }
 
+.flex { display: flex; }
+.flex-column { flex-direction: column; }
+
 .o-modal {
 	display: flex;
 	position: relative;
@@ -86,8 +90,13 @@ body, html {
 	max-height: 90vh;
 	padding: 16px;
 	box-sizing: border-box;
-	background-color: #fff;
+	background-color: #f1f1f1;
 	border-radius: 3px;
+	overflow: hidden;
+
+	&--nopadding {
+		padding: 0;
+	}
 }
 
 .o-btn {
@@ -117,5 +126,41 @@ body, html {
 	&[disabled] {
 		opacity: 0.3;
 	}
+}
+
+.tabs-component {
+	&-tabs {
+		display: flex;
+		margin: 0;
+		padding: 6px 6px 0 6px;
+		list-style: none;
+		background-color: #ccc;
+	}
+	&-tab {
+		border-radius: 4px 4px 0 0;
+		padding: 4px 16px;
+
+		transition: background-color 0.1s;
+
+		&:hover {
+			background-color: #d9d9d9;
+		}
+
+		&.is-active {
+			background-color: #f1f1f1;
+		}
+
+		a {
+			color: inherit;
+			text-decoration: none;
+		}
+	}
+	&-panels {
+		padding: 16px;
+	}
+}
+
+input[disabled] {
+	color: transparent;
 }
 </style>

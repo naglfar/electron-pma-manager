@@ -2,31 +2,41 @@
 declare(strict_types=1);
 
 // TODO: restrict access to client via key in db
-// TODO: generate on startup / key in db
-$cfg['blowfish_secret'] = 'Èzh.õ3NQ§÷[¦W©Æ/Ð^îqfÞ¡¨»3Q5ªä"*Ìx2Í9#]]±ï?:Ä*âØZ/CQÞ)oúTþY2`§øì\Tï!pk±aïÒ¶©¿úÆ÷ºt7kí\>__aZ!¢ö¿¢j:g>ï¼ÑÌ§àäØÒ*ì}î>JoSUÒéó[â^ªk¿5';
 
 $i = 0;
 
 try {
 	$db = new SQLite3('../db.sqlite');
 
-	$res = $db->query('SELECT * FROM tunnels t LEFT JOIN connections c ON t.connection = c.id');
+	$settings = [];
+	$res = $db->query('SELECT * FROM settings');
+	while($row = $res->fetchArray()) {
+		$settings[$row['key']] = $row['value'];
+	}
 
+	$res = $db->query('SELECT * FROM tunnels t LEFT JOIN connections c ON t.connection = c.id');
 	while($row = $res->fetchArray()) {
 		$i += 1;
 		$cfg['Servers'][$i]['verbose'] = $row['name'];
 		$cfg['Servers'][$i]['auth_type'] = 'config';
-		$cfg['Servers'][$i]['host'] = '127.0.0.1';
+		// $cfg['Servers'][$i]['host'] = '127.0.0.1';
+		$cfg['Servers'][$i]['host'] = 'localhost';
 		$cfg['Servers'][$i]['port'] = $row['port'];
-		$cfg['Servers'][$i]['user'] = $row['mysql_user'];
-		$cfg['Servers'][$i]['password'] = empty($row['mysql_password']) ? '' : $row['mysql_password'];
+		$cfg['Servers'][$i]['user'] = $row['mysql_user'] ?: 'root';
+		$cfg['Servers'][$i]['password'] = $row['mysql_password'] ?: '';
 		$cfg['Servers'][$i]['compress'] = true;
 		$cfg['Servers'][$i]['AllowNoPassword'] = true;
+
+		if (!empty($settings['usecontrol'])) {
+			$cfg['Servers'][$i]['controlhost'] = $settings['controlhost'] ?: 'localhost';
+			$cfg['Servers'][$i]['controlport'] = $settings['controlport'] ?: 3306;
+			$cfg['Servers'][$i]['controluser'] = $settings['controluser'] ?: 'root';
+			$cfg['Servers'][$i]['controlpass'] = $settings['controlpass'] ?: '';
+			$cfg['Servers'][$i]['pmadb'] = $settings['pmadb'] ?: 'phpmyadmin';
+			$cfg['Servers'][$i]['control_AllowNoPassword'] = true;
+		}
 	}
 } catch(Exception $e) {}
-
-$cfg['NavigationDisplayServers'] = false;
-
 
 /**
  * phpMyAdmin configuration storage settings.
@@ -67,8 +77,7 @@ $cfg['NavigationDisplayServers'] = false;
 /**
  * Directories for saving/loading files from server
  */
-$cfg['UploadDir'] = '';
-$cfg['SaveDir'] = '';
+
 
 /**
  * Whether to display icons or text or both icons and text in table row
@@ -156,12 +165,51 @@ $cfg['SaveDir'] = '';
  * in the doc/ folder or at <https://docs.phpmyadmin.net/>.
  */
 
-$cfg['DefaultLang'] = 'en';
-$cfg['FilterLanguages'] = 'en';
+$cfg['NavigationDisplayServers'] = false;
+
+// $cfg['DefaultLang'] = 'en';
+// $cfg['Lang'] = 'en';
+// $cfg['FilterLanguages'] = 'en';
 
 $cfg['ThemeManager'] = false;
-$cfg['ThemeDefault'] = 'pmahomme';
+$cfg['ThemeDefault'] = $settings['theme'] ?: 'pmahomme';
+
+// $cfg['Console']['DarkTheme'] = false;
 
 $cfg['MaxNavigationItems'] = 1000;
+$cfg['MaxDbList'] = 100;
 $cfg['MaxTableList'] = 1000;
 $cfg['MaxRows'] = 1000;
+$cfg['ShowAll'] = true;
+$cfg['ExecTimeLimit'] = 0;
+$cfg['AllowUserDropDatabase'] = true;
+
+$cfg['NavigationTreeEnableGrouping'] = false;
+$cfg['NavigationDisplayLogo'] = false;
+$cfg['NavigationTreeDisplayItemFilterMinimum'] = 10;
+$cfg['NavigationTreeDisplayDbFilterMinimum'] = 10;
+
+$cfg['DefaultTabTable'] = 'browse';
+$cfg['NavigationTreeDefaultTabTable'] = 'search';
+	// structure
+	// sql
+	// search
+	// insert
+	// browse
+// $cfg['NavigationTreeDefaultTabTable2'] = 'insert';
+
+$cfg['ShowAll'] = true;
+
+$cfg['RowActionLinksWithoutUnique'] = true;
+$cfg['TablePrimaryKeyOrder'] = 'ASC';
+$cfg['CharEditing'] = 'textarea';
+
+$cfg['UploadDir'] = '';
+$cfg['SaveDir'] = '';
+
+$cfg['RepeatCells'] = 100;
+
+$cfg['InitialSlidersState'] = 'open';
+
+$cfg['UserprefsDisallow'] = [];
+$cfg['UserprefsDeveloperTab'] = true;

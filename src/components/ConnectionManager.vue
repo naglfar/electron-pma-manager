@@ -32,19 +32,25 @@
 							<input name="name" v-model="selected.name">
 						</div>
 						<div class="c-cman__field">
-							<label>MySQL User</label>
-							<input name="mysql_user" v-model="selected.mysql_user">
+							<label>MySQL user</label>
+							<input name="mysql_user" v-model="selected.mysql_user" placeholder="root">
 						</div>
 						<div class="c-cman__field">
-							<label>MySQL Password</label>
-							<input name="mysql_password" type="password" v-model="selected.mysql_password">
+							<label>MySQL password</label>
+							<div class="flex flex-column">
+								<input name="mysql_password" type="password" v-model="selected.mysql_password" placeholder="none" :disabled="selected.mysql_password_ask">
+								<label>
+									<input name="mysql_password_ask" type="checkbox" v-model="selected.mysql_password_ask">
+									Ask on connect
+								</label>
+							</div>
 						</div>
 						<div class="c-cman__field">
-							<label>MySQL Port</label>
-							<input name="mysql_port" v-model="selected.mysql_port">
+							<label>MySQL port</label>
+							<input name="mysql_port" v-model="selected.mysql_port" placeholder="3306">
 						</div>
 						<div class="c-cman__field">
-							<label>SSH Host (ssh config)</label>
+							<label>SSH tunnel host<br><small>(ssh config)</small></label>
 							<input name="ssh_host" v-model="selected.ssh_host">
 						</div>
 						<div class="c-cman__field">
@@ -198,6 +204,7 @@ defineExpose({ show });
 		flex-direction: column;
 		justify-content: flex-end;
 		gap: 8px;
+		overflow: auto;
 	}
 	&__editbuttons {
 		text-align: right;
@@ -223,9 +230,12 @@ defineExpose({ show });
 	&__field {
 		display: flex;
 		flex-direction: row;
-		margin: 6px 0;
+		align-items: start;
+		line-height: 1em;
+		margin: 12px 0;
 
 		label {
+			padding-top: 3px;
 			width: 180px;
 		}
 		input {

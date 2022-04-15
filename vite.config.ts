@@ -5,6 +5,7 @@ import vue from '@vitejs/plugin-vue'
 export default defineConfig({
 	plugins: [
 		vue({
+			reactivityTransform: true,
 			template: {
 				compilerOptions: {
 					isCustomElement: tag => ['webview', 'svg'].indexOf(tag) != -1

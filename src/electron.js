@@ -3,8 +3,8 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { app, BrowserWindow, globalShortcut, ipcMain, dialog } = require('electron')
-const settings = require('electron-settings');
+const { app, BrowserWindow, globalShortcut, ipcMain, dialog, screen } = require('electron')
+const electronSettings = require('electron-settings');
 const PHPServer = require('php-server-manager');
 const knex = require('knex');
 const tunnel = require('tunnel-ssh');
@@ -12,36 +12,86 @@ const SSHConfig = require('ssh-config');
 
 const dbConfig = require('./database/knexfile.js');
 let dbInstance;
-const isDevelopment = process.env.NODE_ENV !== 'production'
-
-
-const phpServer = new PHPServer({
-	port: 4405,
-	directory: isDevelopment ? `${__dirname}/` : `${__dirname}/../dist`,
-	stdio: 'ignore',
-	directives: {
-		display_errors: 1,
-		expose_php: 1
-	}
-});
+const isDevelopment = process.env.NODE_ENV !== 'production';
 
 const tunnels = [];
+let settings = {};
+let pmaOptions = {};
+let phpServer;
+
+const windowStateKeeper = async (windowName) => {
+	let window, windowState;
+
+	const setBounds = async () => {
+		 // Restore from appConfig
+		 if (await electronSettings.has(`windowState.${windowName}`)) {
+			  windowState = await electronSettings.get(`windowState.${windowName}`);
+			  return;
+		 }
+
+		 const size = screen.getPrimaryDisplay().workAreaSize;
+
+		 // Default
+		 windowState = {
+			  x: undefined,
+			  y: undefined,
+			  width: size.width / 2,
+			  height: size.height / 2,
+		 };
+	};
+
+	const saveState = async () => {
+		 // bug: lots of save state events are called. they should be debounced
+		 if (!windowState.isMaximized) {
+			  windowState = window.getBounds();
+		 }
+		 windowState.isMaximized = window.isMaximized();
+		 await electronSettings.set(`windowState.${windowName}`, windowState);
+	};
+
+	const track = async (win) => {
+		 window = win;
+		 ['resize', 'move', 'close'].forEach((event) => {
+			  win.on(event, saveState);
+		 });
+	};
+
+	await setBounds();
+
+	return {
+		 x: windowState.x,
+		 y: windowState.y,
+		 width: windowState.width,
+		 height: windowState.height,
+		 isMaximized: windowState.isMaximized,
+		 track,
+	};
+};
+let mainWindowStateKeeper;
 
 async function createWindow() {
 
-	phpServer.run();
-
 	const win = new BrowserWindow({
+		icon: `${__dirname}/assets/logo.png`,
 		fullscreen: false,
 		autoHideMenuBar: false,
+		autoHideMenuBar: true,
+		menuBarVisible: false,
+
+		x: mainWindowStateKeeper.x,
+		y: mainWindowStateKeeper.y,
+		width: mainWindowStateKeeper.width,
+		height: mainWindowStateKeeper.height,
+
 		webPreferences: {
 			preload: path.join(__dirname, 'electron-preload.js'),
 			webviewTag: true,
 		},
-		autoHideMenuBar: true,
-		menuBarVisible: false,
-		icon: `${__dirname}/assets/logo.png`,
 	});
+	if (mainWindowStateKeeper.isMaximized) {
+		win.maximize();
+	}
+	mainWindowStateKeeper.track(win);
 
 	win.webContents.session.webRequest.onHeadersReceived(
 		{ urls: [ "*://*/*" ] },
@@ -61,22 +111,20 @@ async function createWindow() {
 		win.setTitle(title);
 	});
 
-	ipcMain.handle('new-connection', async (event, host, connectionId) => {
+	ipcMain.handle('new-connection', async (event, connection) => {
 
-		let port = 3306;
-
-		const existing =  await dbInstance.table('tunnels').select('id').where({'connection': connectionId}).first();
+		const existing =  await dbInstance.table('tunnels').select('id').where({'connection': connection.id}).first();
 		if (existing) { return }
 
-		if (host) {
+		if (connection.host) {
 			const query = dbInstance.table('tunnels').max('port as port').first();
 			const lastPort = await query;
-			port = lastPort.port && lastPort.port + 1 || 4406;
+			const port = Math.max(lastPort.port && lastPort.port, settings.startingport || 4406) + 1;
 
 			const config = {
 				username: os.userInfo().username,
-				host: host,
-				dstPort: 3306,
+				host: connection.host,
+				dstPort: connection.port,
 				localHost:'127.0.0.1',
 				localPort: port,
 				keepAlive:true,
@@ -87,7 +135,7 @@ async function createWindow() {
 			try {
 				const sshConfFile = fs.readFileSync(`${os.homedir()}/.ssh/config`, 'utf8');
 				const sshConfig = SSHConfig.parse(sshConfFile);
-				const configHost = sshConfig.compute(host);
+				const configHost = sshConfig.compute(connection.host);
 				// console.log(host);
 				// console.log(configHost);
 				if (configHost.HostName) config.host = configHost.HostName;
@@ -104,12 +152,12 @@ async function createWindow() {
 			try {
 				const tnl = tunnel(config, (error, tnl) => {});
 				tunnels.push(tnl);
-				await dbInstance.table('tunnels').insert({connection: connectionId, port: port});
+				await dbInstance.table('tunnels').insert({connection: connection.id, port: port});
 			} catch (err) {
 				console.log(err);
 			}
 		} else {
-			await dbInstance.table('tunnels').insert({connection: connectionId, port: port});
+			await dbInstance.table('tunnels').insert({connection: connection.id, port: connection.port || 3306 });
 		}
 	});
 
@@ -138,6 +186,23 @@ async function createWindow() {
 		return await query;
 	});
 
+	ipcMain.handle('get-settings', () => {
+		return settings;
+	});
+	ipcMain.handle('save-settings', async (event, s) => {
+		settings = s;
+		const query = dbInstance.table('settings');
+		for (let [key, value] of Object.entries(settings)) {
+			query.insert({ 'key': key, 'value': value })
+		};
+		query.onConflict('key').merge();
+		await query;
+	});
+
+	ipcMain.handle('get-pmaoptions', () => {
+		return pmaOptions;
+	});
+
 	ipcMain.handle('get-dirname', () => {
 		return __dirname;
 	});
@@ -157,18 +222,39 @@ const quit = async () => {
 	app.quit()
 }
 
+const getPMAOptions = async () => {
+	return await new Promise(r => {
+		const http = require('http');
+		const req = http.request({
+			hostname: 'localhost',
+			port: settings.startingport || 4406,
+			path: '/pma/pmadata.php',
+			method: 'GET'
+		}, res => {
+			var body = '';
+			res.on('data', data => {
+				body += data;
+			});
+			res.on('end', () => {
+				try {
+					const json = JSON.parse(body)
+					r(json);
+				} catch(e) {
+					r([]);
+				}
+			})
+		});
+		req.on('error', error => {
+			r([]);
+		})
+		req.end()
+	})
+};
+
 // Quit when all windows are closed.
 app.on('window-all-closed', quit);
 
 app.on('ready', async () => {
-
-	dbInstance = knex(dbConfig);
-	try {
-		await dbInstance.migrate.latest();
-	} catch(err) {
-		dialog.showErrorBox('DB Error', 'Your database seems to be broken, sorry.');
-		app.quit();
-	}
 
 	if (process.platform === 'win32') {
 		process.on('message', (data) => {
@@ -180,6 +266,34 @@ app.on('ready', async () => {
 		process.on('SIGINT', quit);
 		process.on('SIGTERM', quit);
 	}
+
+	mainWindowStateKeeper = await windowStateKeeper('main');
+
+	dbInstance = knex(dbConfig);
+	try {
+		await dbInstance.migrate.latest();
+	} catch(err) {
+		dialog.showErrorBox('DB Error', `Your database seems to be broken:\n\n${err.stack}`);
+		app.quit();
+	}
+
+	const settingsRows = await dbInstance.table('settings');
+	settingsRows.forEach((s) => {
+		settings[s.key] = s.value;
+	});
+
+	phpServer = new PHPServer({
+		port: settings.startingport || 4406,
+		directory: isDevelopment ? `${__dirname}/` : `${__dirname}/../dist`,
+		stdio: 'ignore',
+		directives: {
+			display_errors: 1,
+			expose_php: 1
+		}
+	});
+	await phpServer.run();
+
+	pmaOptions = await getPMAOptions();
 
 	createWindow();
 });
