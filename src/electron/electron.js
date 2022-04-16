@@ -193,10 +193,11 @@ async function createWindow() {
 		settings = s;
 		const query = dbInstance.table('settings');
 		for (let [key, value] of Object.entries(settings)) {
-			query.insert({ 'key': key, 'value': value })
+			const q = query.clone();
+			q.insert({ 'key': key, 'value': value })
+			q.onConflict('key').merge();
+			await q;
 		};
-		query.onConflict('key').merge();
-		await query;
 	});
 
 	ipcMain.handle('get-pmaoptions', () => {
@@ -284,7 +285,7 @@ app.on('ready', async () => {
 
 	phpServer = new PHPServer({
 		port: settings.startingport || 4406,
-		directory: isDevelopment ? `${__dirname}/` : `${__dirname}/../dist`,
+		directory: isDevelopment ? `${__dirname}/../` : `${__dirname}/../../dist/`,
 		stdio: 'ignore',
 		directives: {
 			display_errors: 1,

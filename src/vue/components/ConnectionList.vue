@@ -67,7 +67,8 @@ const filter = (e: Event) => {
 	const input = e.target as HTMLInputElement;
 	const cs = store.connections.filter((c) => c.name.indexOf(input.value) != -1);
 	const c = cs[0];
-	if (c) { marked.value = c.id; }
+	if (input.value && c) { marked.value = c.id; }
+	else { marked.value = undefined; }
 	matched.value = cs.map(c => c.id);
 }
 
@@ -113,18 +114,18 @@ defineExpose({ show });
 					left: 0;
 					bottom: -4px;
 					display: block;
-					border-bottom: 1px solid #eee;
+					border-bottom: 1px solid #ccc;
 				}
 			}
 			&:hover {
-				background-color: #eee;
+				background-color: #ddd;
 			}
 
 			&.hide {
 				display: none;
 			}
 			&.marked {
-				background-color: #f1f1f1;
+				background-color: #ddd;
 			}
 		}
 	}

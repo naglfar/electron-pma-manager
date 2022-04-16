@@ -1,7 +1,7 @@
 <template>
 	<Modal
    	v-model="showModal"
-    	:close="() => showModal = false"
+    	:close="close"
   	>
 		<div class="c-settings o-modal o-modal--nopadding">
 			   <Tabs :options="{ useUrlFragment: false }">
@@ -25,7 +25,7 @@
 								<option
 									v-for="theme in store.pmaOptions.get('themes')"
 									:key="theme.key"
-									:value="theme.key == 'pmahomme' ? undefined : theme.key"
+									:value="theme.key == 'pmahomme' && !settings.theme ? settings.theme : theme.key"
 									v-html="theme.label" />
 							</select>
 						</div>
@@ -35,7 +35,7 @@
 								<option
 									v-for="language in store.pmaOptions.get('languages')"
 									:key="language.key"
-									:value="language.key == 'en' ? undefined : language.key"
+									:value="language.key == 'en' && !settings.language ? settings.language : language.key"
 									v-html="language.label" />
 							</select>
 						</div>
@@ -65,6 +65,7 @@ import { useStore } from '../store';
 const store = useStore();
 
 const settings = ref(Object.fromEntries(store.settings));
+settings.value.usecontrol = !!settings.value.usecontrol;
 
 let showModal = ref(false);
 

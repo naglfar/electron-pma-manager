@@ -6,7 +6,7 @@ declare(strict_types=1);
 $i = 0;
 
 try {
-	$db = new SQLite3('../db.sqlite');
+	$db = new SQLite3('../electron/db.sqlite');
 
 	$settings = [];
 	$res = $db->query('SELECT * FROM settings');
@@ -36,7 +36,9 @@ try {
 			$cfg['Servers'][$i]['control_AllowNoPassword'] = true;
 		}
 	}
-} catch(Exception $e) {}
+} catch(\Throwable $e) {
+
+}
 
 /**
  * phpMyAdmin configuration storage settings.
@@ -168,7 +170,7 @@ try {
 $cfg['NavigationDisplayServers'] = false;
 
 // $cfg['DefaultLang'] = 'en';
-// $cfg['Lang'] = 'en';
+$cfg['Lang'] = $settings['language'] ?: 'en';
 // $cfg['FilterLanguages'] = 'en';
 
 $cfg['ThemeManager'] = false;

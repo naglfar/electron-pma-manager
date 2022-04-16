@@ -22,7 +22,9 @@
 				&#10247;
 			</button>
 			<ul class="c-menu__list">
-				<li @click="webviewDevtools">Open Tab Devtools</li>
+				<li :class="{ 'm--disabled' : !activeTab }" @click="webviewDevtools">Open tab devtools</li>
+				<li :class="{ 'm--disabled' : !activeTab }" @click="webviewReload">Reload tab</li>
+				<li :class="{ 'm--disabled' : !activeTab }" @click="webviewDuplicate">Duplicate tab</li>
 				<slot name="menu"></slot>
 			</ul>
 		</div>
@@ -143,6 +145,16 @@ const webviewDevtools = () => {
 	const webview = webviews.value[activeTab.value];
 	webview.openDevTools();
 };
+const webviewReload = () => {
+	const webview = webviews.value[activeTab.value];
+	webview.reload();
+};
+const webviewDuplicate = () => {
+	const tab = tabs.value.find(t => t.key == activeTab.value);
+	if (tab) {
+		newTab(tab.label, tab.server);
+	}
+}
 
 
 // const searchParams = ref({});
@@ -206,6 +218,11 @@ defineExpose({ newTab });
 	flex-direction: column;
 	height: 100%;
 	width: 100%;
+
+	.tabs-close-icon {
+		vertical-align: top;
+		cursor: pointer;
+	}
 
 	&__nav {
 		display: flex;
@@ -336,6 +353,12 @@ defineExpose({ newTab });
 
 			&:hover {
 				background-color: #eee;
+			}
+
+			&.m--disabled {
+				background-color: #f9f9f9;
+				opacity: 0.3;
+				pointer-events: none;
 			}
 		}
 	}
