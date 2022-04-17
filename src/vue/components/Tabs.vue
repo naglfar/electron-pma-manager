@@ -40,7 +40,7 @@
 			<webview
 				:ref="(el) => { webviews[tab.key] = el; }"
 				style="position: relative;"
-				:src="`http://localhost:${serverport || 4406}/pma/?server=${tab.server}`"
+				:src="`http://localhost:${serverport || 4406}/?server=${tab.server}`"
 				:preload="`file://${dirname}/webview-preload.js`"
 			/>
 		</div>

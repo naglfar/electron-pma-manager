@@ -1,7 +1,10 @@
+const { app } = require('electron');
+// const isDevelopment = process.env.NODE_ENV === 'dev';
 module.exports = {
 	client: "sqlite",
 	connection: {
-		filename: `${__dirname}/../db.sqlite`,
+		// filename: isDevelopment ? `${__dirname}/../db.sqlite` : `${app.getPath('userData')}/db.sqlite`,
+		filename: `${app.getPath('userData')}/db.sqlite`
 	},
 	migrations: {
 		extension: 'js',

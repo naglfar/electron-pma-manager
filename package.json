@@ -5,7 +5,7 @@
   "main": "src/electron/electron.js",
   "scripts": {
     "vite": "vite",
-    "electron": "electron .",
+    "electron": "NODE_ENV=dev electron .",
     "dev": "vite & electron .",
     "build": "vue-tsc --noEmit && vite build && build-electron:dist",
     "build-vue": "vue-tsc --noEmit && vite build",
@@ -44,12 +44,14 @@
       "output": "dist-build",
       "buildResources": "buildResources"
     },
-    "asar": false,
+    "asar": true,
     "files": [
-      "dist/**/*"
+      "dist/**/*",
+      "src/electron/**/*",
+      "src/pma/**/*"
     ],
     "extraMetadata": {
-      "main": "/dist/electron/electron.js"
+      "main": "src/electron/electron.js"
     },
     "appId": "naglfar.pma-electron-vue",
     "mac": {
