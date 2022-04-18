@@ -5,10 +5,9 @@ declare(strict_types=1);
 
 $i = 0;
 
+$settings = [];
 try {
 	$db = new SQLite3('../db.sqlite');
-
-	$settings = [];
 	$res = $db->query('SELECT * FROM settings');
 	while($row = $res->fetchArray()) {
 		$settings[$row['key']] = $row['value'];
@@ -39,11 +38,11 @@ try {
 
 }
 
+// defaults
+
 $cfg['NavigationDisplayServers'] = false;
 
 $cfg['Lang'] = $settings['language'] ?: 'en';
-// $cfg['DefaultLang'] = 'en';
-// $cfg['FilterLanguages'] = 'en';
 
 $cfg['ThemeManager'] = false;
 $cfg['ThemeDefault'] = $settings['theme'] ?: 'pmahomme';
@@ -51,7 +50,7 @@ $cfg['ThemeDefault'] = $settings['theme'] ?: 'pmahomme';
 $cfg['MaxNavigationItems'] = 1000;
 $cfg['MaxDbList'] = 100;
 $cfg['MaxTableList'] = 1000;
-$cfg['MaxRows'] = 1000;
+$cfg['MaxRows'] = 500;
 $cfg['ShowAll'] = true;
 $cfg['ExecTimeLimit'] = 0;
 $cfg['AllowUserDropDatabase'] = true;
@@ -63,12 +62,6 @@ $cfg['NavigationTreeDisplayDbFilterMinimum'] = 10;
 
 $cfg['DefaultTabTable'] = 'browse';
 $cfg['NavigationTreeDefaultTabTable'] = 'search';
-	// structure
-	// sql
-	// search
-	// insert
-	// browse
-// $cfg['NavigationTreeDefaultTabTable2'] = 'insert';
 
 $cfg['ShowAll'] = true;
 
@@ -85,3 +78,12 @@ $cfg['InitialSlidersState'] = 'open';
 
 $cfg['UserprefsDisallow'] = [];
 $cfg['UserprefsDeveloperTab'] = true;
+
+// merge user defined settings
+foreach($settings as $key => $value) {
+	if (strpos($key, 'pma.') === 0) {
+		$key = substr($key, 4);
+		if (is_numeric($key)) { continue; }
+		$cfg[$key] = $value;
+	}
+}

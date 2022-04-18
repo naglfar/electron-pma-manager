@@ -19,6 +19,7 @@
 						</div>
 					</Tab>
 					<Tab name="phpMyAdmin">
+						<small>Most of these go into effect on new tabs / reloads, some may need a restart</small>
 						<div class="c-settings__field">
 							<label>Theme</label>
 							<select v-model="settings.theme">
@@ -48,6 +49,23 @@
 						<div class="c-settings__field c-settings__field--level2"><label>User</label><input :disabled="!settings.usecontrol" v-model="settings.controluser" placeholder="root"></div>
 						<div class="c-settings__field c-settings__field--level2"><label>Password</label><input :disabled="!settings.usecontrol" v-model="settings.controlpass" placeholder="none"></div>
 						<div class="c-settings__field c-settings__field--level2"><label>Database</label><input :disabled="!settings.usecontrol" v-model="settings.pmadb " placeholder="pma"></div>
+						<div>
+							<label>Additional phpMyAdmin settings</label>
+							<table class="c-settings__pmakv">
+								<thead>
+									<tr>
+										<th>key</th>
+										<th>value</th>
+									</tr>
+								</thead>
+								<tbody>
+									<tr v-for="(setting, index) in pmaSettings" :key="index" :class="{'m--error': (setting.key.trim() == '' || setting.value.trim() == '') && setting.key.trim() != setting.value.trim() }">
+										<td><input v-model="setting.key"></td>
+										<td><input v-model="setting.value"></td>
+									</tr>
+								</tbody>
+							</table>
+						</div>
 					</Tab>
 				</Tabs>
 				<div class="c-settings__buttons">
@@ -58,7 +76,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, Ref, toRaw, unref } from 'vue';
+import { onMounted, ref, Ref, toRaw, unref, watch, watchEffect } from 'vue';
 // @ts-ignore
 import {Tabs, Tab} from 'vue3-tabs-component';
 import { useStore } from '../store';
@@ -66,6 +84,22 @@ const store = useStore();
 
 const settings = ref(Object.fromEntries(store.settings));
 settings.value.usecontrol = !!settings.value.usecontrol;
+const pmaSettings: Ref<Array<{[key: string]: string}>> = ref([]);
+Object.keys(settings.value).filter(s => s.startsWith('pma.')).forEach(s => {
+	pmaSettings.value.push({key: s.substring(4), value: settings.value[s] });
+})
+pmaSettings.value.push({key: '', value: ''});
+watch(pmaSettings, () => {
+	let index = pmaSettings.value.findIndex(s => s.key == '' && s.value == '');
+	while(index != -1 && index != pmaSettings.value.length - 1) {
+		pmaSettings.value.splice(index, 1);
+		index = pmaSettings.value.findIndex(s => s.key == '' && s.value == '');
+	}
+	const last = pmaSettings.value[pmaSettings.value.length - 1];
+	if (last.key != '' || last.value != '') {
+		pmaSettings.value.push({key: '', value: ''});
+	}
+}, { deep: true });
 
 let showModal = ref(false);
 
@@ -73,7 +107,18 @@ const show = async () => {
 	showModal.value = true;
 }
 const close = () => {
+	for (let [key, value] of Object.entries(settings.value)) {
+		if (key.startsWith('pma.')) {
+			delete (settings.value[key]);
+		}
+	}
+	pmaSettings.value.forEach(s => {
+		if (s.key.trim() != '' && s.value.trim() != '') {
+			settings.value[`pma.${s.key}`] = s.value;
+		}
+	})
 	store.settings = new Map(Object.entries(settings.value));
+	console.log(toRaw(store.settings));
 	store.saveSettings();
 	showModal.value = false;
 }
@@ -81,6 +126,17 @@ const close = () => {
 defineExpose({ show });
 </script>
 
+<style lang="scss">
+// FIXME no scoping
+.tabs-component {
+	&-panels {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		max-height: 100%;
+	}
+}
+</style>
 <style lang="scss" scoped>
 
 .c-settings {
@@ -95,6 +151,16 @@ defineExpose({ show });
 
 	.tabs-component {
 		flex: 1;
+		display: flex;
+		flex-direction: column;
+		max-height: 88%;
+
+		&-panel {
+			display: flex;
+			flex-direction: column;
+			max-height: 95%;
+			overflow: auto;
+		}
 	}
 
 	&__field {
@@ -127,6 +193,33 @@ defineExpose({ show });
 			}
 		}
 
+	}
+
+	&__pmakv {
+		width: 100%;
+		background-color: white;
+		border:1px solid #ddd;
+		border-spacing: 0;
+		table-layout: fixed;
+		th {
+			background-color: #f4f4f4;
+			border-bottom: 1px solid #ddd;
+			padding: 4px;
+		}
+		td {
+			border: 1px solid #ddd;
+			input {
+				width: 100%;
+				border: 0;
+				padding: 4px;
+			}
+		}
+		tr.m--error {
+			td, input {
+				background-color: #fdd;
+				color: #c44;
+			}
+		}
 	}
 
 	&__buttons {

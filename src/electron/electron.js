@@ -76,7 +76,7 @@ async function createMainWindow() {
 	mainWindowStateKeeper = await windowStateKeeper('main');
 
 	const win = new BrowserWindow({
-		icon: `${__dirname}/assets/logo.png`,
+		icon: `${__dirname}/icon.png`,
 		fullscreen: false,
 		autoHideMenuBar: false,
 		autoHideMenuBar: true,
@@ -196,12 +196,15 @@ async function createMainWindow() {
 	ipcMain.handle('save-settings', async (event, s) => {
 		settings = s;
 		const query = dbInstance.table('settings');
+		const keys = [];
 		for (let [key, value] of Object.entries(settings)) {
+			keys.push(key);
 			const q = query.clone();
 			q.insert({ 'key': key, 'value': value })
 			q.onConflict('key').merge();
 			await q;
 		};
+		await query.clone().del().whereNotIn('key', keys);
 	});
 
 	ipcMain.handle('get-pmaoptions', () => {

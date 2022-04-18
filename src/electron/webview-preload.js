@@ -24,6 +24,10 @@ window.addEventListener('load', () => {
 			background-size: auto 100%;
 			width: 22px;
 		}
+		.text-monospace {
+			/* FIXME: monospace fonts not rendering in electron? */
+			font-family: sans !important;
+		}
 	`;
 	document.head.appendChild(style);
 });

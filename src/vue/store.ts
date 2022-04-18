@@ -7,13 +7,17 @@ export const useStore = defineStore('store', () => {
 	const settings: Ref<Map<String, String>> = ref(new Map());
 	const pmaOptions: Ref<Map<String, Array<PMAOption>>> = ref(new Map);
 	const saveSettings = async () => {
-		await (<any>window).electronAPI.saveSettings(Object.fromEntries((toRaw(unref(settings)))));
+		if ((<any>window).electronAPI) {
+			await (<any>window).electronAPI.saveSettings(Object.fromEntries((toRaw(unref(settings)))));
+		}
 	}
 	const init = async() => {
-		const s = await (<any>window).electronAPI.getSettings();
-		settings.value = new Map(Object.entries(s));
-		const pmao = await (<any>window).electronAPI.getPMAOptions();
-		pmaOptions.value = new Map(Object.entries(pmao));
+		if ((<any>window).electronAPI) {
+			const s = await (<any>window).electronAPI.getSettings();
+			settings.value = new Map(Object.entries(s));
+			const pmao = await (<any>window).electronAPI.getPMAOptions();
+			pmaOptions.value = new Map(Object.entries(pmao));
+		}
 	}
 	return {
 		activeTab,

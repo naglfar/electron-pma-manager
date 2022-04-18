@@ -200,7 +200,9 @@ const searchInputEnter = (e: KeyboardEvent) => {
 
 let dirname = ref('');
 onMounted(async () => {
-	dirname.value = await (<any>window).electronAPI.getDirname();
+	if ((<any>window).electronAPI) {
+		dirname.value = await (<any>window).electronAPI.getDirname();
+	}
 	document.addEventListener('keydown', searchHotkey);
 	searchInput.value?.addEventListener('keydown', searchInputKeydown)
 });
