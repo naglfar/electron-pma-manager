@@ -18,7 +18,7 @@ try {
 		$i += 1;
 		$cfg['Servers'][$i]['verbose'] = $row['name'];
 		$cfg['Servers'][$i]['auth_type'] = 'config';
-		$cfg['Servers'][$i]['host'] = 'localhost';
+		$cfg['Servers'][$i]['host'] = '127.0.0.1';
 		$cfg['Servers'][$i]['port'] = $row['port'];
 		$cfg['Servers'][$i]['user'] = $row['mysql_user'] ?: 'root';
 		$cfg['Servers'][$i]['password'] = $row['mysql_password'] ?: '';

@@ -120,15 +120,17 @@ async function createMainWindow() {
 		const existing =  await dbInstance.table('tunnels').select('id').where({'connection': connection.id}).first();
 		if (existing) { return }
 
-		if (connection.host) {
+		// console.log(connection);
+
+		if (connection.ssh_host) {
 			const query = dbInstance.table('tunnels').max('port as port').first();
 			const lastPort = await query;
 			const port = Math.max(lastPort.port && lastPort.port, settings.startingport || 4406) + 1;
 
 			const config = {
 				username: os.userInfo().username,
-				host: connection.host,
-				dstPort: connection.port,
+				host: connection.ssh_host,
+				dstPort: connection.mysql_port || 3306,
 				localHost:'127.0.0.1',
 				localPort: port,
 				keepAlive:true,
@@ -139,7 +141,7 @@ async function createMainWindow() {
 			try {
 				const sshConfFile = fs.readFileSync(path.normalize(`${os.homedir()}/.ssh/config`), 'utf8');
 				const sshConfig = SSHConfig.parse(sshConfFile);
-				const configHost = sshConfig.compute(connection.host);
+				const configHost = sshConfig.compute(connection.ssh_host);
 				// console.log(host);
 				// console.log(configHost);
 				if (configHost.HostName) config.host = configHost.HostName;
@@ -154,6 +156,7 @@ async function createMainWindow() {
 			} catch (err) {}
 
 			try {
+				console.log(config);
 				const tnl = tunnel(config, (error, tnl) => {});
 				tunnels.push(tnl);
 				await dbInstance.table('tunnels').insert({connection: connection.id, port: port});
