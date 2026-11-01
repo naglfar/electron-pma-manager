@@ -1,7 +1,14 @@
 <?php
 declare(strict_types=1);
 
-// TODO: restrict access to client via key in db
+// access is restricted to electron-pma-manager by router.php
+
+// passwords are stored encrypted, the electron process sends them for each request:
+// { "passwords": { connection id: mysql password }, "controlpass": control user password }
+$credentials = json_decode((string) base64_decode($_SERVER['HTTP_X_PMA_MANAGER_CREDENTIALS'] ?? ''), true);
+if (!is_array($credentials)) {
+	$credentials = [];
+}
 
 $settings = [];
 try {
@@ -21,16 +28,16 @@ try {
 		$cfg['Servers'][$i]['host'] = '127.0.0.1';
 		$cfg['Servers'][$i]['port'] = $row['port'];
 		$cfg['Servers'][$i]['user'] = $row['mysql_user'] ?: 'root';
-		$cfg['Servers'][$i]['password'] = $row['mysql_password'] ?: '';
+		$cfg['Servers'][$i]['password'] = (string) ($credentials['passwords'][$i] ?? '');
 		$cfg['Servers'][$i]['compress'] = true;
 		$cfg['Servers'][$i]['AllowNoPassword'] = true;
 
 		if (!empty($settings['usecontrol'])) {
-			$cfg['Servers'][$i]['controlhost'] = $settings['controlhost'] ?: 'localhost';
-			$cfg['Servers'][$i]['controlport'] = $settings['controlport'] ?: 3306;
-			$cfg['Servers'][$i]['controluser'] = $settings['controluser'] ?: 'root';
-			$cfg['Servers'][$i]['controlpass'] = $settings['controlpass'] ?: '';
-			$cfg['Servers'][$i]['pmadb'] = $settings['pmadb'] ?: 'phpmyadmin';
+			$cfg['Servers'][$i]['controlhost'] = ($settings['controlhost'] ?? '') ?: 'localhost';
+			$cfg['Servers'][$i]['controlport'] = ($settings['controlport'] ?? '') ?: 3306;
+			$cfg['Servers'][$i]['controluser'] = ($settings['controluser'] ?? '') ?: 'root';
+			$cfg['Servers'][$i]['controlpass'] = (string) ($credentials['controlpass'] ?? '');
+			$cfg['Servers'][$i]['pmadb'] = ($settings['pmadb'] ?? '') ?: 'phpmyadmin';
 			$cfg['Servers'][$i]['control_AllowNoPassword'] = true;
 		}
 	}
@@ -49,7 +56,7 @@ if (getenv('PMA_MANAGER_SECRET')) {
 
 $cfg['NavigationDisplayServers'] = false;
 
-$cfg['Lang'] = $settings['language'] ?: 'en';
+$cfg['Lang'] = ($settings['language'] ?? '') ?: 'en';
 
 $cfg['ThemeManager'] = false;
 // light or dark theme, the electron process sends the active color scheme as header

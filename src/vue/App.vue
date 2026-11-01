@@ -11,6 +11,7 @@
 	<ConnectionList ref="connectionList" @select="newConnection" />
 	<ConnectionManager ref="connectionManager" />
 	<SettingsDialog ref="settingsDialog" />
+	<PasswordPrompt ref="passwordPrompt" />
 </template>
 
 <script setup lang="ts">
@@ -18,22 +19,34 @@ import Tabs from './components/Tabs.vue'
 import ConnectionList from './components/ConnectionList.vue'
 import ConnectionManager from './components/ConnectionManager.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
+import PasswordPrompt from './components/PasswordPrompt.vue'
 import { useStore } from './store';
-import { onMounted, toRaw, unref, useTemplateRef } from 'vue';
+import { onMounted, useTemplateRef } from 'vue';
 
 const tabs = useTemplateRef<InstanceType<typeof Tabs>>('tabs');
 const connectionList = useTemplateRef<InstanceType<typeof ConnectionList>>('connectionList');
 const connectionManager = useTemplateRef<InstanceType<typeof ConnectionManager>>('connectionManager');
 const settingsDialog = useTemplateRef<InstanceType<typeof SettingsDialog>>('settingsDialog');
+const passwordPrompt = useTemplateRef<InstanceType<typeof PasswordPrompt>>('passwordPrompt');
 
 const store = useStore();
 
 const newConnection = async (id: number) => {
 	const connection = store.connections.find(c => c.id == id);
 	if (connection) {
+		const api = (<any>window).electronAPI;
 		try {
+			// "ask on connect": the password is only kept by the main process while the connection is open
+			let password: string | undefined;
+			if (await api.connectionNeedsPassword(connection.id)) {
+				const entered = await passwordPrompt.value?.ask(connection.name);
+				if (entered == null) {
+					return;
+				}
+				password = entered;
+			}
 			// phpMyAdmin server index, errors are shown by the main process
-			const server: number = await (<any>window).electronAPI.newConnection(toRaw(unref(connection)));
+			const server: number = await api.newConnection({ id: connection.id }, password);
 			tabs.value?.newTab(connection.name, server);
 		} catch (e) {}
 	}
@@ -47,9 +60,10 @@ onMounted(async () => {
 	if ((<any>window).electronAPI) {
 		store.connections = await (<any>window).electronAPI.getConnections();
 		const favorites = store.connections.filter((c) => c.favorite);
-		favorites.forEach((c) => {
-			newConnection(c.id);
-		})
+		// one after another, connections may ask for a password
+		for (const c of favorites) {
+			await newConnection(c.id);
+		}
 		if (favorites.length == 0) {
 			connectionList.value?.show();
 		}

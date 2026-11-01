@@ -60,16 +60,19 @@
 			v-show="tab.key == activeTab"
 		>
 			<div class="c-tabs__contentloader"><div></div><div></div></div>
+			<!-- preload and security settings are set by the main process, see pma-session.js -->
 			<webview
+				v-if="pmaUrl"
 				:ref="(el: any) => { webviews[tab.key] = el; }"
 				style="position: relative;"
-				:src="`http://localhost:${serverport || 4406}/?server=${tab.server}`"
-				:preload="`file://${dirname}/webview-preload.js`"
+				partition="pma"
+				allowpopups
+				:src="`${pmaUrl}/?server=${tab.server}`"
 			/>
 		</div>
 		<div class="c-search" v-show="searchShown">
 			<div class="c-search__controls">
-				<input ref="searchInput" type="search" class="c-search__input" @input="() => doSearch" @keydown.enter="searchInputEnter">
+				<input ref="searchInput" type="search" class="c-search__input" @input="() => doSearch()" @keydown.enter="searchInputEnter">
 			</div>
 			<div class="c-search__close" @click="hideSearch">X</div>
 		</div>
@@ -79,17 +82,12 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, Ref, watch } from 'vue'
-import { useStore } from '../store';
 
-const store = useStore();
 
 const emit = defineEmits<{
 	// no tab of this server is left
 	(e: 'close-server', server: number): void
 }>();
-
-// don't change when settings change
-const serverport = store.settings.get('startingport');
 
 interface PMATab {
 	key: string;
@@ -307,16 +305,15 @@ const searchInputEnter = (e: KeyboardEvent) => {
 	}
 };
 
-let dirname = ref('');
+// url of the php server serving phpMyAdmin
+const pmaUrl = ref('');
 onMounted(async () => {
-	if ((<any>window).electronAPI) {
-		dirname.value = await (<any>window).electronAPI.getDirname();
-	}
+	pmaUrl.value = await (<any>window).electronAPI?.getPMAUrl() || '';
 	document.addEventListener('keydown', searchHotkey);
 	searchInput.value?.addEventListener('keydown', searchInputKeydown)
 });
 onUnmounted(() => {
-	document.removeEventListener('keyup', searchHotkey);
+	document.removeEventListener('keydown', searchHotkey);
 	searchInput.value?.removeEventListener('keydown', searchInputKeydown)
 })
 

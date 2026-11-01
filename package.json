@@ -12,10 +12,7 @@
     "build-vue": "vue-tsc --noEmit && vite build",
     "build-electron:dir": "electron-builder --dir",
     "build-electron:dist": "electron-builder",
-    "build-electron:all": "electron-builder -wl",
-    "knex:migrate:make": "knex --knexfile src/database/knexfile.js migrate:make",
-    "knex:migrate:latest": "knex --knexfile src/database/knexfile.js migrate:latest",
-    "knex:migrate:rollback": "knex --knexfile src/database/knexfile.js migrate:rollback"
+    "build-electron:all": "electron-builder -wl"
   },
   "dependencies": {
     "adm-zip": "^0.6.1",

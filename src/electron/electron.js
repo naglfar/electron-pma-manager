@@ -6,6 +6,8 @@ const { paths, migrateLegacyData } = require('./paths');
 const pma = require('./pma');
 const phpServer = require('./php-server');
 const { TunnelManager } = require('./tunnels');
+const pmaSession = require('./pma-session');
+const secrets = require('./secrets');
 const electronSettings = require('electron-settings');
 const knex = require('knex');
 
@@ -18,6 +20,13 @@ let settings = {};
 let pmaOptions = {};
 let tunnelManager;
 let mainWindow;
+// mysql passwords of the open connections, plain text only in memory, see pma-session.js
+const connectionPasswords = new Map();
+// decrypted control user password, the request headers are set synchronously
+let controlPassword = '';
+
+// columns the renderer may save
+const CONNECTION_COLUMNS = ['id', 'name', 'mysql_user', 'mysql_password', 'mysql_password_ask', 'mysql_port', 'ssh_host', 'favorite'];
 
 const getPHPPort = () => parseInt(settings.startingport, 10) || 4406;
 
@@ -25,8 +34,7 @@ const getPHPPort = () => parseInt(settings.startingport, 10) || 4406;
 const applyUITheme = (theme) => {
 	nativeTheme.themeSource = ['light', 'dark'].includes(theme) ? theme : 'system';
 };
-// phpMyAdmin renders its theme on the server, config.inc.php picks the light or dark one from this header
-const COLOR_SCHEME_HEADER = 'X-PMA-Manager-Color-Scheme';
+// phpMyAdmin renders its theme on the server, config.inc.php picks the light or dark one, see pma-session.js
 const colorScheme = () => nativeTheme.shouldUseDarkColors ? 'dark' : 'light';
 
 // tabs pick up a changed phpMyAdmin theme when they reload,
@@ -70,7 +78,6 @@ const windowStateKeeper = async (windowName) => {
 	};
 
 	const saveState = async () => {
-		 // bug: lots of save state events are called. they should be debounced
 		 if (!windowState.isMaximized) {
 			  windowState = window.getBounds();
 		 }
@@ -78,10 +85,21 @@ const windowStateKeeper = async (windowName) => {
 		 await electronSettings.set(`windowState.${windowName}`, windowState);
 	};
 
+	// resizing and moving fire many events, save once they stop
+	let saveTimer = null;
+	const saveStateDebounced = () => {
+		 clearTimeout(saveTimer);
+		 saveTimer = setTimeout(saveState, 500);
+	};
+
 	const track = async (win) => {
 		 window = win;
-		 ['resize', 'move', 'close'].forEach((event) => {
-			  win.on(event, saveState);
+		 ['resize', 'move'].forEach((event) => {
+			  win.on(event, saveStateDebounced);
+		 });
+		 win.on('close', () => {
+			  clearTimeout(saveTimer);
+			  saveState();
 		 });
 	};
 
@@ -124,29 +142,11 @@ async function createMainWindow() {
 	mainWindowStateKeeper.track(win);
 
 	// a reload of the ui closes all tabs
-	win.webContents.on('did-navigate', () => tunnelManager.closeAll());
+	win.webContents.on('did-navigate', () => {
+		connectionPasswords.clear();
+		tunnelManager.closeAll();
+	});
 	mainWindow = win;
-
-	// the webviews share the session of the main window
-	win.webContents.session.webRequest.onBeforeSendHeaders(
-		{ urls: [ '*://localhost/*', '*://127.0.0.1/*' ] },
-		(details, callback) => {
-			details.requestHeaders[COLOR_SCHEME_HEADER] = colorScheme();
-			callback({ requestHeaders: details.requestHeaders });
-		}
-	);
-
-	win.webContents.session.webRequest.onHeadersReceived(
-		{ urls: [ "*://*/*" ] },
-		(d, c) => {
-			if (d.responseHeaders['X-Frame-Options']){
-				delete d.responseHeaders['X-Frame-Options'];
-			} else if (d.responseHeaders['x-frame-options']) {
-				delete d.responseHeaders['x-frame-options'];
-			}
-			c({cancel: false, responseHeaders: d.responseHeaders});
-		}
-	);
 
 	if (isDevelopment) {
 		// set by scripts/dev.mjs
@@ -161,16 +161,37 @@ const registerIPC = () => {
 		BrowserWindow.fromWebContents(event.sender)?.setTitle(title);
 	});
 
+	// whether opening the connection needs a password from the user
+	ipcMain.handle('connection-needs-password', async (event, connectionId) => {
+		const row = await dbInstance.table('connections').where({ id: connectionId }).first();
+		return !!row?.mysql_password_ask && !connectionPasswords.has(connectionId);
+	});
+
 	// opens the tunnel if necessary, returns the phpMyAdmin server index
-	ipcMain.handle('new-connection', async (event, connection) => {
+	// password: entered by the user for "ask on connect" connections
+	ipcMain.handle('new-connection', async (event, { id }, password) => {
+		const connection = await dbInstance.table('connections').where({ id }).first();
+		const hadPassword = connectionPasswords.has(id);
 		try {
+			if (!connection) {
+				throw new Error(`Connection ${id} not found`);
+			}
+			if (!hadPassword) {
+				if (connection.mysql_password_ask && typeof password != 'string') {
+					throw new Error('A password is required');
+				}
+				connectionPasswords.set(id, connection.mysql_password_ask ? password : await secrets.decrypt(connection.mysql_password));
+			}
 			await tunnelManager.open(connection);
 			return connection.id;
 		} catch (err) {
+			if (!hadPassword) {
+				connectionPasswords.delete(id);
+			}
 			dialog.showMessageBox(BrowserWindow.fromWebContents(event.sender), {
 				type: 'error',
 				title: 'Connection failed',
-				message: `Could not open connection "${connection.name}"`,
+				message: `Could not open connection "${connection?.name ?? id}"`,
 				detail: err.message,
 			});
 			throw err;
@@ -179,34 +200,56 @@ const registerIPC = () => {
 
 	// last tab of a connection was closed
 	ipcMain.handle('close-connection', async (event, connectionId) => {
+		connectionPasswords.delete(connectionId);
 		await tunnelManager.close(connectionId);
 	});
 
-	ipcMain.handle('save-connection', async (event, connection) => {
+	ipcMain.handle('save-connection', async (event, data) => {
+		const connection = Object.fromEntries(CONNECTION_COLUMNS.filter(key => key in data).map(key => [key, data[key]]));
 		// a changed host or port needs a new tunnel
 		const old = await dbInstance.table('connections').where({ id: connection.id }).first();
 		if (old && (old.ssh_host != connection.ssh_host || old.mysql_port != connection.mysql_port)) {
+			connectionPasswords.delete(connection.id);
 			await tunnelManager.close(connection.id);
 		}
 		// convert boolean to sqlite integer
 		connection.favorite = connection.favorite ? 1 : 0;
-		return await dbInstance.table('connections').insert({...connection}).onConflict('id').merge();
+		connection.mysql_password_ask = connection.mysql_password_ask ? 1 : 0;
+		if (connection.mysql_password_ask) {
+			connection.mysql_password = '';
+		} else if (!connection.mysql_password && old?.mysql_password && !await secrets.canDecrypt(old.mysql_password)) {
+			// not decryptable right now (e.g. locked keychain), the dialog showed it empty: keep it
+			connection.mysql_password = old.mysql_password;
+		} else if (connectionPasswords.has(connection.id)) {
+			// open tabs use the new password on the next request
+			connectionPasswords.set(connection.id, connection.mysql_password || '');
+		}
+		if (!secrets.isEncrypted(connection.mysql_password)) {
+			connection.mysql_password = await secrets.encrypt(connection.mysql_password);
+		}
+		return await dbInstance.table('connections').insert(connection).onConflict('id').merge();
 	});
 
 	ipcMain.handle('delete-connection', async (event, connectionId) => {
+		connectionPasswords.delete(connectionId);
 		await tunnelManager.close(connectionId);
 		return await dbInstance.table('connections').where({'id': connectionId}).del();
 	});
 
 	ipcMain.handle('get-connections', async () => {
 		const connections = await dbInstance.table('connections').select('*').orderBy('name');
-		// convert sqlite integer field to boolean
-		connections.forEach(c => c.favorite = !!c.favorite);
+		for (const c of connections) {
+			// convert sqlite integer fields to boolean
+			c.favorite = !!c.favorite;
+			c.mysql_password_ask = !!c.mysql_password_ask;
+			c.mysql_password = await secrets.decrypt(c.mysql_password);
+		}
 		return connections;
 	});
 
+	// controlpass is stored encrypted
 	ipcMain.handle('get-settings', () => {
-		return settings;
+		return { ...settings, ...(settings.controlpass ? { controlpass: controlPassword } : {}) };
 	});
 	// preview while the settings dialog is open, saved with the settings
 	ipcMain.handle('set-ui-theme', (event, theme) => {
@@ -215,7 +258,13 @@ const registerIPC = () => {
 
 	ipcMain.handle('save-settings', async (event, s) => {
 		const themeChanged = ['uitheme', 'theme', 'themedark'].some(key => settings[key] != s[key]);
-		settings = s;
+		if (!s.controlpass && settings.controlpass && !await secrets.canDecrypt(settings.controlpass)) {
+			// not decryptable right now (e.g. locked keychain), the dialog showed it empty: keep it
+			s = { ...s, controlpass: settings.controlpass };
+		} else {
+			controlPassword = s.controlpass || '';
+		}
+		settings = { ...s, ...(s.controlpass && !secrets.isEncrypted(s.controlpass) ? { controlpass: await secrets.encrypt(s.controlpass) } : {}) };
 		applyUITheme(settings.uitheme);
 		if (themeChanged) {
 			notifyPMAThemeChanged(true);
@@ -235,8 +284,8 @@ const registerIPC = () => {
 		return pmaOptions;
 	});
 
-	ipcMain.handle('get-dirname', () => {
-		return __dirname;
+	ipcMain.handle('get-pma-url', () => {
+		return phpServer.getUrl();
 	});
 
 	ipcMain.handle('pma-check-update', async () => {
@@ -289,6 +338,37 @@ const confirmHostKey = async (info) => {
 			+ `If the change is expected, remove the old key with:\n\nssh-keygen -R '${info.host}'`,
 	});
 	return false;
+};
+
+// plain text passwords of older versions, or encrypted with an outdated key
+const reEncrypt = async (value) => {
+	if (secrets.isEncrypted(value)) {
+		return await secrets.needsReEncrypt(value) ? await secrets.encrypt(await secrets.decrypt(value)) : value;
+	}
+	return await secrets.encrypt(value);
+};
+const encryptStoredPasswords = async () => {
+	let changed = false;
+	const controlpass = await dbInstance.table('settings').where({ key: 'controlpass' }).first();
+	if (controlpass?.value) {
+		const encrypted = await reEncrypt(controlpass.value);
+		if (encrypted != controlpass.value) {
+			await dbInstance.table('settings').where({ key: 'controlpass' }).update({ value: encrypted });
+			changed = true;
+		}
+	}
+	const connections = await dbInstance.table('connections').select('id', 'mysql_password');
+	for (const c of connections) {
+		const encrypted = await reEncrypt(c.mysql_password);
+		if (encrypted != c.mysql_password) {
+			await dbInstance.table('connections').where({ id: c.id }).update({ mysql_password: encrypted });
+			changed = true;
+		}
+	}
+	// rewrites the file, sqlite keeps old values in free pages
+	if (changed) {
+		await dbInstance.raw('VACUUM');
+	}
 };
 
 let quitting = false;
@@ -404,6 +484,8 @@ app.on('ready', async () => {
 	dbInstance = knex(dbConfig);
 	try {
 		await dbInstance.migrate.latest();
+		await encryptStoredPasswords();
+		console.log(`Password storage: ${secrets.backend()}${secrets.isWeak() ? ' (no keychain, weak encryption)' : ''}`);
 	} catch(err) {
 		dialog.showErrorBox('DB Error', `Your database seems to be broken:\n\n${err.stack}`);
 		return quit();
@@ -413,6 +495,7 @@ app.on('ready', async () => {
 	settingsRows.forEach((s) => {
 		settings[s.key] = s.value;
 	});
+	controlPassword = await secrets.decrypt(settings.controlpass);
 
 	applyUITheme(settings.uitheme);
 	lastColorScheme = colorScheme();
@@ -444,6 +527,13 @@ app.on('ready', async () => {
 
 	pmaOptions = await phpServer.getPMAOptions();
 
+	pmaSession.setup({
+		getColorScheme: colorScheme,
+		getCredentials: () => ({
+			passwords: Object.fromEntries(connectionPasswords),
+			controlpass: controlPassword,
+		}),
+	});
 	registerIPC();
 	await createMainWindow();
 	progressWindow?.close();

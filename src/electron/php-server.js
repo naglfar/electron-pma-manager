@@ -14,6 +14,13 @@ const { paths } = require('./paths');
 const HOST = '127.0.0.1';
 const START_TIMEOUT = 10000;
 
+// every request needs this token, see router.php; new for each run
+const TOKEN_HEADER = 'X-PMA-Manager-Token';
+const token = crypto.randomBytes(32).toString('hex');
+// outside the document root, php can't read it from the asar archive
+const routerSource = path.normalize(`${__dirname}/../pma/router.php`);
+const routerPath = path.join(paths.userData, 'pma-router.php');
+
 let phpProcess = null;
 let port = null;
 // last lines of stderr, shown when php fails
@@ -48,7 +55,7 @@ const getSecret = async () => {
 };
 
 const request = (urlPath, method = 'GET') => new Promise((resolve, reject) => {
-	const req = http.request({ host: HOST, port, path: urlPath, method, timeout: 5000 }, (res) => {
+	const req = http.request({ host: HOST, port, path: urlPath, method, timeout: 5000, headers: { [TOKEN_HEADER]: token } }, (res) => {
 		let body = '';
 		res.on('data', data => body += data);
 		res.on('end', () => resolve({ status: res.statusCode, body }));
@@ -82,6 +89,7 @@ const start = async (serverPort) => {
 		throw new Error(`Port ${serverPort} is already in use. Change the starting port in the settings.`);
 	}
 	fs.mkdirSync(paths.pmaTmp, { recursive: true });
+	fs.copyFileSync(routerSource, routerPath);
 
 	port = serverPort;
 	stderrLines = [];
@@ -89,7 +97,8 @@ const start = async (serverPort) => {
 		'-S', `${HOST}:${port}`,
 		'-t', paths.pma,
 		'-d', 'display_errors=1',
-		'-d', 'expose_php=1',
+		'-d', 'expose_php=0',
+		routerPath,
 	], {
 		stdio: ['ignore', 'ignore', 'pipe'],
 		env: {
@@ -97,6 +106,7 @@ const start = async (serverPort) => {
 			PMA_MANAGER_DB: paths.db,
 			PMA_MANAGER_TMP: paths.pmaTmp,
 			PMA_MANAGER_SECRET: await getSecret(),
+			PMA_MANAGER_TOKEN: token,
 		},
 	});
 	proc.stderr.on('data', (data) => {
@@ -133,6 +143,19 @@ const stop = () => new Promise((resolve) => {
 
 const isRunning = () => !!phpProcess;
 
+// webviews use localhost, see isServerUrl
+const getUrl = () => port ? `http://localhost:${port}` : '';
+
+// url served by this php server
+const isServerUrl = (url) => {
+	try {
+		const u = new URL(url);
+		return u.protocol == 'http:' && ['localhost', HOST].includes(u.hostname) && u.port == String(port);
+	} catch (e) {
+		return false;
+	}
+};
+
 // languages and themes of the installed phpMyAdmin
 const getPMAOptions = async () => {
 	try {
@@ -145,6 +168,10 @@ const getPMAOptions = async () => {
 
 module.exports = {
 	HOST,
+	TOKEN_HEADER,
+	token,
+	isServerUrl,
+	getUrl,
 	hasPHP,
 	start,
 	stop,
