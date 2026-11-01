@@ -19,6 +19,15 @@
 						</div>
 					</Tab>
 					<Tab name="phpMyAdmin">
+						<div class="c-settings__field">
+							<label>Version</label>
+							<div class="c-settings__version">
+								<span>{{ pmaVersion.installed || 'unknown' }}</span>
+								<button class="o-btn o-btn--secondary" :disabled="pmaVersion.busy" @click.prevent="checkUpdate">Check for updates</button>
+								<button v-if="pmaVersion.updateAvailable" class="o-btn" :disabled="pmaVersion.busy" @click.prevent="update">Update to {{ pmaVersion.latest }}</button>
+							</div>
+						</div>
+						<small v-if="pmaVersion.message" class="c-settings__versionmessage" :class="{ 'm--error': pmaVersion.error }">{{ pmaVersion.message }}</small>
 						<small>Most of these go into effect on new tabs / reloads, some may need a restart</small>
 						<div class="c-settings__field">
 							<label>Theme</label>
@@ -83,7 +92,8 @@ import { useStore } from '../store';
 const store = useStore();
 
 const settings = ref(Object.fromEntries(store.settings));
-settings.value.usecontrol = !!settings.value.usecontrol;
+// stored as sqlite text: '0' / '1'
+settings.value.usecontrol = ['1', 'true'].includes(String(settings.value.usecontrol));
 const pmaSettings: Ref<Array<{[key: string]: string}>> = ref([]);
 Object.keys(settings.value).filter(s => s.startsWith('pma.')).forEach(s => {
 	pmaSettings.value.push({key: s.substring(4), value: settings.value[s] });
@@ -101,10 +111,63 @@ watch(pmaSettings, () => {
 	}
 }, { deep: true });
 
+const pmaVersion = ref({
+	installed: '',
+	latest: '',
+	updateAvailable: false,
+	busy: false,
+	error: false,
+	message: '',
+});
+const api = (<any>window).electronAPI;
+
+const checkUpdate = async () => {
+	pmaVersion.value.busy = true;
+	pmaVersion.value.error = false;
+	pmaVersion.value.message = 'Checking…';
+	try {
+		const info = await api.pmaCheckUpdate();
+		Object.assign(pmaVersion.value, info);
+		pmaVersion.value.message = info.updateAvailable ? `phpMyAdmin ${info.latest} is available.` : 'phpMyAdmin is up to date.';
+		if (!info.phpSupported) {
+			pmaVersion.value.message += ` phpMyAdmin ${info.latest} officially supports PHP ${info.phpVersions}, installed is PHP ${info.phpVersion}.`;
+		}
+	} catch (e) {
+		pmaVersion.value.error = true;
+		pmaVersion.value.message = `Checking for updates failed: ${e}`;
+	}
+	pmaVersion.value.busy = false;
+};
+
+const update = async () => {
+	pmaVersion.value.busy = true;
+	pmaVersion.value.error = false;
+	try {
+		const pmao = await api.pmaUpdate(pmaVersion.value.latest);
+		store.pmaOptions = new Map(Object.entries(pmao));
+		pmaVersion.value.installed = pmaVersion.value.latest;
+		pmaVersion.value.updateAvailable = false;
+		pmaVersion.value.message = `Updated to phpMyAdmin ${pmaVersion.value.latest}. Reload open tabs to use it.`;
+	} catch (e) {
+		pmaVersion.value.error = true;
+		pmaVersion.value.message = `Update failed: ${e}`;
+	}
+	pmaVersion.value.busy = false;
+};
+
+if (api) {
+	api.onPMAUpdateProgress(({ step, progress }: { step: string, progress: number }) => {
+		pmaVersion.value.message = `${step}… ${Math.round(progress * 100)}%`;
+	});
+}
+
 let showModal = ref(false);
 
 const show = async () => {
 	showModal.value = true;
+	if (api && !pmaVersion.value.busy) {
+		checkUpdate();
+	}
 }
 const close = () => {
 	for (let [key, value] of Object.entries(settings.value)) {
@@ -219,6 +282,22 @@ defineExpose({ show });
 				background-color: #fdd;
 				color: #c44;
 			}
+		}
+	}
+
+	&__version {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+
+	&__versionmessage {
+		position: relative;
+		top: -4px;
+		margin-bottom: 6px;
+
+		&.m--error {
+			color: #c44;
 		}
 	}
 

@@ -1,66 +1,54 @@
 <?php
-define('ROOT_PATH', __DIR__ . DIRECTORY_SEPARATOR);
-define('PHPMYADMIN', true);
-if (file_exists(ROOT_PATH . 'libraries/constants.php')) {
-	// phpMyAdmin >= 5.2
-	require_once(ROOT_PATH . 'libraries/constants.php');
-} else {
-	require_once(ROOT_PATH . 'libraries/vendor_config.php');
+declare(strict_types=1);
+
+// Languages and themes of this phpMyAdmin installation for the settings dialog.
+// Reads the installation's files and does not bootstrap phpMyAdmin, which changes between versions.
+
+error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING & ~E_DEPRECATED);
+
+$root = __DIR__ . DIRECTORY_SEPARATOR;
+
+// language names: phpMyAdmin's own table if available, else intl, else the code
+$languageData = [];
+try {
+	require_once $root . 'vendor' . DIRECTORY_SEPARATOR . 'autoload.php';
+	$property = new ReflectionProperty(\PhpMyAdmin\LanguageManager::class, 'languageData');
+	if (PHP_VERSION_ID < 80100) {
+		$property->setAccessible(true);
+	}
+	$languageData = $property->getValue();
+} catch (\Throwable $e) {
 }
-require_once(AUTOLOAD_FILE);
 
-define('PMA_VERSION', \PhpMyAdmin\Version::VERSION);
-define('PMA_MAJOR_VERSION', \PhpMyAdmin\Version::SERIES);
+$languageLabel = function (string $code) use ($languageData): string {
+	$key = strtolower($code);
+	if (isset($languageData[$key])) {
+		// [code, english name, native name, ...]
+		[, $english, $native] = $languageData[$key];
+		return $native ? "$native - $english" : $english;
+	}
+	if (class_exists('Locale')) {
+		$english = Locale::getDisplayName($code, 'en');
+		$native = Locale::getDisplayName($code, $code);
+		return $native && $native != $english ? "$native - $english" : $english;
+	}
+	return $code;
+};
 
-error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
-
-$available_languages = \PhpMyAdmin\LanguageManager::getInstance()->availableLanguages();
-$languages = [];
-foreach($available_languages as $l) {
-	$languages[] = ['key' => $l->getCode(), 'label' => $l->getName() ];
+$languages = [['key' => 'en', 'label' => $languageLabel('en')]];
+foreach (glob($root . 'locale/*/LC_MESSAGES/phpmyadmin.mo') ?: [] as $file) {
+	$code = basename(dirname(dirname($file)));
+	$languages[] = ['key' => $code, 'label' => $languageLabel($code)];
 }
-// $languages = array_map(function($l) {
-// 	return ['code' => $l->getCode(), 'label' => $l->getName() ];
-// }, $available_languages);
+usort($languages, fn($a, $b) => strcasecmp(strip_tags(html_entity_decode($a['label'])), strip_tags(html_entity_decode($b['label']))));
 
 $themes = [];
-$themesPath = \PhpMyAdmin\ThemeManager::getThemesFsDir();
-$themesPathUrl = \PhpMyAdmin\ThemeManager::getThemesDir();
-$handleThemes = opendir($themesPath);
-if ($handleThemes) {
-
-	$themeObjects = [];
-
-	// check for themes directory
-	while (($PMA_Theme = readdir($handleThemes)) !== false) {
-		// Skip non dirs, . and ..
-		if ($PMA_Theme === '.'
-			|| $PMA_Theme === '..'
-			|| ! @is_dir($themesPath . $PMA_Theme)
-		) {
-			continue;
-		}
-		if (array_key_exists($PMA_Theme, $themeObjects)) {
-			continue;
-		}
-		$new_theme = \PhpMyAdmin\Theme::load(
-			$themesPathUrl . $PMA_Theme,
-			$themesPath . $PMA_Theme . DIRECTORY_SEPARATOR,
-			$PMA_Theme
-		);
-		if (!$new_theme) {
-			continue;
-		}
-
-		// $new_theme->setId($PMA_Theme);
-		$themeObjects[$PMA_Theme] = $new_theme;
-	}
-	closedir($handleThemes);
-
-	ksort($themeObjects);
-	foreach($themeObjects as $key => $theme) {
-		$themes[] = ['key' => $key, 'label' => $theme->name];
-	}
+foreach (glob($root . 'themes/*/theme.json') ?: [] as $file) {
+	$key = basename(dirname($file));
+	$info = json_decode((string) file_get_contents($file), true);
+	$themes[] = ['key' => $key, 'label' => $info['name'] ?? $key];
 }
+usort($themes, fn($a, $b) => strcmp($a['key'], $b['key']));
 
+header('Content-Type: application/json');
 echo json_encode(['languages' => $languages, 'themes' => $themes]);

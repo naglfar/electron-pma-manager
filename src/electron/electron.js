@@ -3,7 +3,9 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { app, BrowserWindow, globalShortcut, ipcMain, dialog, screen } = require('electron')
+const { app, BrowserWindow, globalShortcut, ipcMain, dialog, screen, Notification } = require('electron')
+const { paths, migrateLegacyData } = require('./paths');
+const pma = require('./pma');
 const electronSettings = require('electron-settings');
 const PHPServer = require('php-server-manager');
 const knex = require('knex');
@@ -229,6 +231,27 @@ async function createMainWindow() {
 		return __dirname;
 	});
 
+	ipcMain.handle('pma-check-update', async () => {
+		return await pma.checkUpdate();
+	});
+
+	ipcMain.handle('pma-update', async (event, version) => {
+		const onProgress = (step, progress) => {
+			win.setProgressBar(progress);
+			win.webContents.send('pma-update-progress', { step, progress });
+		};
+		try {
+			await pma.install(version, onProgress, async () => phpServer.close());
+		} finally {
+			win.setProgressBar(-1);
+			if (!phpServer.process) {
+				await startPHPServer();
+			}
+		}
+		pmaOptions = await getPMAOptions();
+		return pmaOptions;
+	});
+
 	if (isDevelopment) {
 		win.loadURL('http://127.0.0.1:3000/');
 	} else {
@@ -239,7 +262,7 @@ async function createMainWindow() {
 const quit = async () => {
 	try {
 		tunnels.forEach(tunnel => tunnel.close());
-		phpServer.close();
+		phpServer?.close();
 		await dbInstance.table('tunnels').del();
 		await dbInstance.destroy();
 	} catch(e) {}
@@ -271,46 +294,102 @@ const checkPHP = () => {
 	return hasbin('php');
 }
 
-const checkFileHashs = (file1, file2) => {
-	let fileBuffer = fs.readFileSync(file1);
-	let hashSum = crypto.createHash('sha1');
-	hashSum.update(fileBuffer);
-	const hex1 = hashSum.digest('base64');
-	fileBuffer = fs.readFileSync(file2);
-	hashSum = crypto.createHash('sha1');
-	hashSum.update(fileBuffer);
-	const hex2 = hashSum.digest('base64');
-	return hex1 == hex2;
+const startPHPServer = async () => {
+	fs.mkdirSync(paths.pmaTmp, { recursive: true });
+
+	let secret = await electronSettings.get('pmaSecret');
+	if (!secret) {
+		secret = crypto.randomBytes(32).toString('hex');
+		await electronSettings.set('pmaSecret', secret);
+	}
+
+	phpServer = new PHPServer({
+		port: settings.startingport || 4406,
+		directory: paths.pma,
+		stdio: 'ignore',
+		directives: {
+			display_errors: 1,
+			expose_php: 1
+		},
+		env: {
+			PMA_MANAGER_DB: paths.db,
+			PMA_MANAGER_TMP: paths.pmaTmp,
+			PMA_MANAGER_SECRET: secret,
+		},
+	});
+	await phpServer.run();
 };
 
-const updatePMA = async () => {
+// small window showing the progress of the first phpMyAdmin installation
+const createProgressWindow = async (title) => {
+	const win = new BrowserWindow({
+		width: 420,
+		height: 120,
+		title,
+		resizable: false,
+		minimizable: false,
+		maximizable: false,
+		autoHideMenuBar: true,
+		icon: `${__dirname}/icon.png`,
+	});
+	const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title></head>
+		<body style="font-family: sans-serif; color: #444; margin: 16px;">
+			<div id="step">&nbsp;</div>
+			<progress id="progress" max="1" value="0" style="width: 100%; margin-top: 12px;"></progress>
+		</body></html>`;
+	await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+	return {
+		update: (step, progress) => {
+			if (win.isDestroyed()) return;
+			win.setProgressBar(progress);
+			win.webContents.executeJavaScript(
+				`document.getElementById('step').textContent = ${JSON.stringify(`${step}…`)};
+				document.getElementById('progress').value = ${Number(progress) || 0};`
+			).catch(() => {});
+		},
+		close: () => !win.isDestroyed() && win.destroy(),
+	};
+};
 
-	const pmaPath = path.normalize(`${app.getPath('userData')}/phpMyAdmin/`);
-	const composerPath = path.normalize(`${__dirname}/../pma/composer.phar`);
-	const util = require('util');
-	const exec = util.promisify(require('child_process').exec);
-
-	let cmd;
-	if (!fs.existsSync(pmaPath) || !fs.existsSync(`${pmaPath}/composer.json`)) {
-		if (fs.existsSync(pmaPath)) {
-			fs.unlinkSync(pmaPath);
-		}
-		cmd = `php ${composerPath} create-project phpmyadmin/phpmyadmin --repository-url=https://www.phpmyadmin.net/packages.json --no-dev ${pmaPath}`;
-	} else {
-		cmd = `php ${composerPath} update --working-dir="${pmaPath}"`;
-	}
+const installPMA = async () => {
+	let progressWindow;
 	try {
-		await exec(cmd);
-
-		fs.copyFileSync(`${path.normalize(`${__dirname}/../pma/config.inc.php`)}`, `${pmaPath}config.inc.php`);
-
-		fs.copyFileSync(`${path.normalize(`${__dirname}/../pma/pmadata.php`)}`, `${pmaPath}pmadata.php`);
-
-	} catch(e) {
-		dialog.showErrorBox('Error downloading phpMyAdmin', e.stderr || e);
-		return false;
+		const release = await pma.getLatestRelease();
+		const btn = dialog.showMessageBoxSync({
+			type: 'question',
+			title: 'No phpMyAdmin installed',
+			message: `Downloading phpMyAdmin ${release.version} to ${paths.pma}, this can take a short while.`,
+			buttons: [
+				'OK',
+				'Cancel',
+			],
+			cancelId: 1,
+		});
+		if (btn != 0) {
+			return { installed: false };
+		}
+		progressWindow = await createProgressWindow(`Installing phpMyAdmin ${release.version}`);
+		await pma.install(release.version, progressWindow.update);
+		return { installed: true, progressWindow };
+	} catch (e) {
+		progressWindow?.close();
+		dialog.showErrorBox('Error installing phpMyAdmin', e.stack || String(e));
+		return { installed: false };
 	}
-	return true;
+};
+
+// non blocking hint at startup
+const notifyPMAUpdate = async () => {
+	try {
+		const info = await pma.checkUpdate();
+		if (info.updateAvailable && Notification.isSupported()) {
+			new Notification({
+				title: 'phpMyAdmin update available',
+				body: `phpMyAdmin ${info.latest} is available (installed: ${info.installed}). Update it in the settings.`,
+				icon: `${__dirname}/icon.png`,
+			}).show();
+		}
+	} catch (e) {}
 };
 
 const getPMAOptions = async () => {
@@ -363,6 +442,8 @@ app.on('ready', async () => {
 		app.quit();
 	}
 
+	migrateLegacyData();
+
 	dbInstance = knex(dbConfig);
 	try {
 		await dbInstance.migrate.latest();
@@ -376,50 +457,24 @@ app.on('ready', async () => {
 		settings[s.key] = s.value;
 	});
 
-	const pmaPath = path.normalize(`${app.getPath('userData')}/phpMyAdmin/`);
-	if (!fs.existsSync(pmaPath)) {
-		const btn = dialog.showMessageBoxSync({
-			type: 'question',
-			title: 'No phpMyAdmin installed',
-			message: `Downloading the latest phpMyAdmin version to ${pmaPath}, this can take a short while.`,
-			buttons: [
-				'OK',
-				'Cancel',
-			],
-			cancelId: 1,
-
-		});
-		if (btn == 0) {
-			if (!await updatePMA()) {
-				quit();
-			}
-		} else {
-			quit();
+	let progressWindow;
+	if (!pma.isInstalled()) {
+		const result = await installPMA();
+		if (!result.installed) {
+			return quit();
 		}
+		progressWindow = result.progressWindow;
 	}
 
 	// update pma extensions if changed
-	const configPath = path.normalize(`${__dirname}/../pma/config.inc.php`);
-	if (!fs.existsSync(`${pmaPath}config.inc.php`) || !checkFileHashs(configPath,`${pmaPath}config.inc.php`)) {
-		fs.copyFileSync(configPath, `${pmaPath}config.inc.php`);
-	}
-	const dataPath = path.normalize(`${__dirname}/../pma/pmadata.php`);
-	if (!fs.existsSync(`${pmaPath}pmadata.php`) || !checkFileHashs(dataPath,`${pmaPath}pmadata.php`)) {
-		fs.copyFileSync(dataPath, `${pmaPath}pmadata.php`);
-	}
+	pma.updateExtensions();
 
-	phpServer = new PHPServer({
-		port: settings.startingport || 4406,
-		directory: pmaPath,
-		stdio: 'ignore',
-		directives: {
-			display_errors: 1,
-			expose_php: 1
-		}
-	});
-	await phpServer.run();
+	await startPHPServer();
 
 	pmaOptions = await getPMAOptions();
 
-	createMainWindow();
+	await createMainWindow();
+	progressWindow?.close();
+
+	notifyPMAUpdate();
 });

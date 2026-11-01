@@ -7,7 +7,8 @@ $i = 0;
 
 $settings = [];
 try {
-	$db = new SQLite3('../db.sqlite');
+	// paths are passed by the electron process
+	$db = new SQLite3(getenv('PMA_MANAGER_DB') ?: '../db.sqlite', SQLITE3_OPEN_READONLY);
 	$res = $db->query('SELECT * FROM settings');
 	while($row = $res->fetchArray()) {
 		$settings[$row['key']] = $row['value'];
@@ -39,6 +40,13 @@ try {
 }
 
 // defaults
+
+if (getenv('PMA_MANAGER_TMP')) {
+	$cfg['TempDir'] = getenv('PMA_MANAGER_TMP');
+}
+if (getenv('PMA_MANAGER_SECRET')) {
+	$cfg['blowfish_secret'] = hex2bin(getenv('PMA_MANAGER_SECRET'));
+}
 
 $cfg['NavigationDisplayServers'] = false;
 

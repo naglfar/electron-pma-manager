@@ -11,4 +11,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 	saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
 	getPMAOptions: () => ipcRenderer.invoke('get-pmaoptions'),
 	getDirname: () => ipcRenderer.invoke('get-dirname'),
+	pmaCheckUpdate: () => ipcRenderer.invoke('pma-check-update'),
+	pmaUpdate: (version) => ipcRenderer.invoke('pma-update', version),
+	onPMAUpdateProgress: (callback) => ipcRenderer.on('pma-update-progress', (event, data) => callback(data)),
 })

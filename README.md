@@ -1,4 +1,4 @@
-# electron pma manager
+# electron-pma-manager
 
 Electron wrapper for phpMyAdmin.
 - multiple pma sessions in tabs
