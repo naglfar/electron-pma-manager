@@ -38,7 +38,7 @@
 		>
 			<div class="c-tabs__contentloader"><div></div><div></div></div>
 			<webview
-				:ref="(el) => { webviews[tab.key] = el; }"
+				:ref="(el: any) => { webviews[tab.key] = el; }"
 				style="position: relative;"
 				:src="`http://localhost:${serverport || 4406}/?server=${tab.server}`"
 				:preload="`file://${dirname}/webview-preload.js`"
@@ -57,7 +57,7 @@
 <script setup lang="ts">
 import { nextTick, onMounted, onUnmounted, reactive, ref, Ref, toRaw, watchEffect } from 'vue'
 import 'vue3-tabs-chrome/dist/vue3-tabs-chrome.css'
-import Vue3TabsChrome, {Tab} from 'vue3-tabs-chrome'
+import { Vue3TabsChrome, type Tab } from 'vue3-tabs-chrome'
 import { useStore } from '../store';
 
 const store = useStore();
@@ -68,9 +68,6 @@ const serverport = store.settings.get('startingport');
 interface PMATab extends Tab {
    server: number;
 };
-// FIXME: for typescript
-let webview: any;
-
 const tabRef = ref();
 const activeTab = ref('')
 const tabs: Ref<Array<PMATab>> = ref([]);
@@ -79,7 +76,7 @@ const searchInput:Ref<HTMLInputElement|null> = ref(null);
 const searchShown = ref(false);
 const searchLastInput = ref('');
 
-const setTabRef = (el: HTMLElement) => {
+const setTabRef = (el: any) => {
 	tabRef.value = el
 };
 

@@ -19,12 +19,12 @@ import ConnectionList from './components/ConnectionList.vue'
 import ConnectionManager from './components/ConnectionManager.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
 import { useStore } from './store';
-import { onMounted, ref, toRaw, unref } from 'vue';
+import { onMounted, toRaw, unref, useTemplateRef } from 'vue';
 
-const tabs = $ref<typeof Tabs>();
-const connectionList = $ref<typeof ConnectionList>();
-const connectionManager = $ref<typeof ConnectionManager>();
-const settingsDialog = $ref<typeof SettingsDialog>();
+const tabs = useTemplateRef<InstanceType<typeof Tabs>>('tabs');
+const connectionList = useTemplateRef<InstanceType<typeof ConnectionList>>('connectionList');
+const connectionManager = useTemplateRef<InstanceType<typeof ConnectionManager>>('connectionManager');
+const settingsDialog = useTemplateRef<InstanceType<typeof SettingsDialog>>('settingsDialog');
 
 const store = useStore();
 
@@ -34,7 +34,7 @@ const newConnection = async (id: number) => {
 		await (<any>window).electronAPI.newConnection(toRaw(unref(connection)));
 		const tunnels: Array<Tunnel> = await (<any>window).electronAPI.getTunnels();
 		const index = tunnels.findIndex(tunnel => tunnel.connection == connection.id);
-		tabs.newTab(connection.name, index+1);
+		tabs.value?.newTab(connection.name, index+1);
 	}
 }
 
@@ -46,7 +46,7 @@ onMounted(async () => {
 			newConnection(c.id);
 		})
 		if (favorites.length == 0) {
-			connectionList.show();
+			connectionList.value?.show();
 		}
 	}
 });

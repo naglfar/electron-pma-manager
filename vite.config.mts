@@ -5,6 +5,11 @@ import vue from '@vitejs/plugin-vue'
 export default defineConfig({
 	base: './',
 	root: 'src/vue',
+	server: {
+		host: '127.0.0.1',
+		port: 3000,
+		strictPort: true,
+	},
 	build: {
 		target: 'esnext',
 		outDir: '../../dist',
@@ -12,7 +17,6 @@ export default defineConfig({
 	},
 	plugins: [
 		vue({
-			reactivityTransform: true,
 			template: {
 				compilerOptions: {
 					isCustomElement: tag => ['webview', 'svg'].indexOf(tag) != -1

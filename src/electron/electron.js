@@ -7,7 +7,7 @@ const { app, BrowserWindow, globalShortcut, ipcMain, dialog, screen } = require(
 const electronSettings = require('electron-settings');
 const PHPServer = require('php-server-manager');
 const knex = require('knex');
-const tunnel = require('tunnel-ssh');
+const { createTunnel } = require('tunnel-ssh');
 const SSHConfig = require('ssh-config');
 const crypto = require('crypto');
 
@@ -78,9 +78,7 @@ async function createMainWindow() {
 	const win = new BrowserWindow({
 		icon: `${__dirname}/icon.png`,
 		fullscreen: false,
-		autoHideMenuBar: false,
 		autoHideMenuBar: true,
-		menuBarVisible: false,
 
 		x: mainWindowStateKeeper.x,
 		y: mainWindowStateKeeper.y,
@@ -127,38 +125,51 @@ async function createMainWindow() {
 			const lastPort = await query;
 			const port = Math.max(lastPort.port && lastPort.port, settings.startingport || 4406) + 1;
 
+			let host = connection.ssh_host;
+			let username = os.userInfo().username;
+			if (host.includes('@')) {
+				username = host.substr(0, host.indexOf('@'));
+				host = host.substr(host.indexOf('@') + 1);
+			}
+			// if (host.indexOf(':')) {
+			// 	port = host.substr(host.indexOf('@') + 1);
+			// }
+
 			const config = {
-				username: os.userInfo().username,
-				host: connection.ssh_host,
-				dstPort: connection.mysql_port || 3306,
-				localHost:'127.0.0.1',
-				localPort: port,
-				keepAlive:true,
+				username,
+				host,
+				keepaliveInterval: 10000,
 				// debug: (log) => console.log(log),
-				agent: process.env.SSH_AUTH_SOCK || null,
+				agent: process.env.SSH_AUTH_SOCK || undefined,
 			};
 
 			try {
 				const sshConfFile = fs.readFileSync(path.normalize(`${os.homedir()}/.ssh/config`), 'utf8');
 				const sshConfig = SSHConfig.parse(sshConfFile);
-				const configHost = sshConfig.compute(connection.ssh_host);
+				const configHost = sshConfig.compute(host);
 				// console.log(host);
 				// console.log(configHost);
 				if (configHost.HostName) config.host = configHost.HostName;
 				if (configHost.Port) config.port = configHost.Port;
 				if (configHost.User) config.username = configHost.User;
 				if (configHost.IdentityFile) {
-					if (configHost.IdentityFile.startsWith('~/')) {
-						configHost.IdentityFile = configHost.IdentityFile.replace('~/', `${os.homedir()}${path.sep}`);
+					// ssh-config returns IdentityFile as array
+					let identityFile = [].concat(configHost.IdentityFile)[0];
+					if (identityFile.startsWith('~/')) {
+						identityFile = identityFile.replace('~/', `${os.homedir()}${path.sep}`);
 					}
-					config.privateKey = fs.readFileSync(configHost.IdentityFile);
+					config.privateKey = fs.readFileSync(identityFile);
 				}
 			} catch (err) {}
 
 			try {
-				console.log(config);
-				const tnl = tunnel(config, (error, tnl) => {});
-				tunnels.push(tnl);
+				const [server] = await createTunnel(
+					{ autoClose: false },
+					{ host: '127.0.0.1', port },
+					config,
+					{ dstAddr: '127.0.0.1', dstPort: connection.mysql_port || 3306 },
+				);
+				tunnels.push(server);
 				await dbInstance.table('tunnels').insert({connection: connection.id, port: port});
 			} catch (err) {
 				console.log(err);
@@ -219,7 +230,7 @@ async function createMainWindow() {
 	});
 
 	if (isDevelopment) {
-		win.loadURL('http://' + phpServer.host + ':3000/');
+		win.loadURL('http://127.0.0.1:3000/');
 	} else {
 		win.loadFile(path.normalize(`${__dirname}/../../dist/index.html`));
 	}
@@ -306,7 +317,7 @@ const getPMAOptions = async () => {
 	return await new Promise(r => {
 		const http = require('http');
 		const req = http.request({
-			hostname: 'localhost',
+			hostname: phpServer.host,
 			port: settings.startingport || 4406,
 			path: '/pmadata.php',
 			method: 'GET'
@@ -365,12 +376,12 @@ app.on('ready', async () => {
 		settings[s.key] = s.value;
 	});
 
-	const phpPath = path.normalize(`${app.getPath('userData')}/phpMyAdmin/`);
-	if (!fs.existsSync(phpPath)) {
+	const pmaPath = path.normalize(`${app.getPath('userData')}/phpMyAdmin/`);
+	if (!fs.existsSync(pmaPath)) {
 		const btn = dialog.showMessageBoxSync({
 			type: 'question',
 			title: 'No phpMyAdmin installed',
-			message: 'Downloading the latest phpMyAdmin version, this can take a short while.',
+			message: `Downloading the latest phpMyAdmin version to ${pmaPath}, this can take a short while.`,
 			buttons: [
 				'OK',
 				'Cancel',
@@ -389,18 +400,17 @@ app.on('ready', async () => {
 
 	// update pma extensions if changed
 	const configPath = path.normalize(`${__dirname}/../pma/config.inc.php`);
-	if (!fs.existsSync(`${phpPath}config.inc.php`) || !checkFileHashs(configPath,`${phpPath}config.inc.php`)) {
-		fs.copyFileSync(configPath, `${phpPath}config.inc.php`);
+	if (!fs.existsSync(`${pmaPath}config.inc.php`) || !checkFileHashs(configPath,`${pmaPath}config.inc.php`)) {
+		fs.copyFileSync(configPath, `${pmaPath}config.inc.php`);
 	}
 	const dataPath = path.normalize(`${__dirname}/../pma/pmadata.php`);
-	if (!fs.existsSync(`${phpPath}pmadata.php`) || !checkFileHashs(dataPath,`${phpPath}pmadata.php`)) {
-		fs.copyFileSync(dataPath, `${phpPath}pmadata.php`);
+	if (!fs.existsSync(`${pmaPath}pmadata.php`) || !checkFileHashs(dataPath,`${pmaPath}pmadata.php`)) {
+		fs.copyFileSync(dataPath, `${pmaPath}pmadata.php`);
 	}
 
-	console.log(phpPath);
 	phpServer = new PHPServer({
 		port: settings.startingport || 4406,
-		directory: phpPath,
+		directory: pmaPath,
 		stdio: 'ignore',
 		directives: {
 			display_errors: 1,

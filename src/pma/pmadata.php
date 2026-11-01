@@ -1,7 +1,12 @@
 <?php
 define('ROOT_PATH', __DIR__ . DIRECTORY_SEPARATOR);
 define('PHPMYADMIN', true);
-require_once(ROOT_PATH . 'libraries/vendor_config.php');
+if (file_exists(ROOT_PATH . 'libraries/constants.php')) {
+	// phpMyAdmin >= 5.2
+	require_once(ROOT_PATH . 'libraries/constants.php');
+} else {
+	require_once(ROOT_PATH . 'libraries/vendor_config.php');
+}
 require_once(AUTOLOAD_FILE);
 
 define('PMA_VERSION', \PhpMyAdmin\Version::VERSION);
@@ -40,7 +45,8 @@ if ($handleThemes) {
 		}
 		$new_theme = \PhpMyAdmin\Theme::load(
 			$themesPathUrl . $PMA_Theme,
-			$themesPath . $PMA_Theme . DIRECTORY_SEPARATOR
+			$themesPath . $PMA_Theme . DIRECTORY_SEPARATOR,
+			$PMA_Theme
 		);
 		if (!$new_theme) {
 			continue;
