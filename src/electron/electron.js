@@ -110,7 +110,8 @@ async function createMainWindow() {
 	);
 
 	if (isDevelopment) {
-		win.loadURL('http://127.0.0.1:3000/');
+		// set by scripts/dev.mjs
+		win.loadURL(process.env.VITE_DEV_SERVER_URL || 'http://127.0.0.1:3000/');
 	} else {
 		win.loadFile(path.normalize(`${__dirname}/../../dist/index.html`));
 	}

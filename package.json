@@ -7,7 +7,7 @@
   "scripts": {
     "vite": "vite",
     "electron": "NODE_ENV=dev electron .",
-    "dev": "vite & NODE_ENV=dev electron .",
+    "dev": "node scripts/dev.mjs",
     "build": "vue-tsc --noEmit && vite build && npm run build-electron:dist",
     "build-vue": "vue-tsc --noEmit && vite build",
     "build-electron:dir": "electron-builder --dir",
