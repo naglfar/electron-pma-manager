@@ -1,18 +1,36 @@
 <template>
 <div class="c-tabs">
 	<nav class="c-tabs__nav">
-		<vue3-tabs-chrome
-			:ref="setTabRef"
-			v-model="activeTab"
-			:tabs="tabs"
-			class="c-tabs__bar"
-			@mousedown.middle="mouseMiddle"
-			@mousewheel="mouseWheel"
-		>
-			<template #after>
+		<div class="c-tabs__bar" @wheel.passive="mouseWheel">
+			<!-- pointer capture on the list, the tabs are moved in the dom while dragging -->
+			<div
+				class="c-tabs__list"
+				ref="tabList"
+				@pointermove="dragMove"
+				@pointerup="dragEnd"
+				@pointercancel="dragEnd"
+				@lostpointercapture="dragEnd"
+			>
+				<div
+					v-for="tab in tabs"
+					:key="tab.key"
+					:ref="(el: any) => { tabElements[tab.key] = el; }"
+					class="c-tabs__tab"
+					:class="{ 'm--active': tab.key == activeTab, 'm--dragging': drag?.key == tab.key && drag.moved }"
+					:style="drag?.key == tab.key ? { transform: `translateX(${drag.offset}px)` } : undefined"
+					:title="tab.label"
+					@pointerdown.left="dragStart($event, tab.key)"
+					@mousedown.middle.prevent
+					@mouseup.middle="closeTab(tab.key)"
+				>
+					<span class="c-tabs__label">{{ tab.label }}</span>
+					<button class="c-tabs__close" title="Close tab" @pointerdown.stop @click.stop="closeTab(tab.key)">&times;</button>
+				</div>
+			</div>
+			<div class="c-tabs__after">
 				<slot name="after"></slot>
-			</template>
-		</vue3-tabs-chrome>
+			</div>
+		</div>
 		<div class="c-menu">
 			<button
 				class="c-menu__button"
@@ -30,9 +48,10 @@
 		</div>
 	</nav>
 	<div class="c-tabs__container">
+		<!-- opening order, moving a webview in the dom reloads it -->
 		<div
 			class="c-tabs__content"
-			v-for="tab in tabs"
+			v-for="tab in pages"
 			:key="tab.key"
 			v-show="tab.key == activeTab"
 		>
@@ -55,38 +74,42 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, onMounted, onUnmounted, reactive, ref, Ref, toRaw, watchEffect } from 'vue'
-import 'vue3-tabs-chrome/dist/vue3-tabs-chrome.css'
-import { Vue3TabsChrome, type Tab } from 'vue3-tabs-chrome'
+import { computed, nextTick, onMounted, onUnmounted, ref, Ref, watch } from 'vue'
 import { useStore } from '../store';
 
 const store = useStore();
 
+const emit = defineEmits<{
+	// no tab of this server is left
+	(e: 'close-server', server: number): void
+}>();
+
 // don't change when settings change
 const serverport = store.settings.get('startingport');
 
-interface PMATab extends Tab {
-   server: number;
+interface PMATab {
+	key: string;
+	label: string;
+	server: number;
+	opened: number;
 };
-const tabRef = ref();
 const activeTab = ref('')
+// order of the tab bar
 const tabs: Ref<Array<PMATab>> = ref([]);
+// order of opening, for the webviews
+const pages = computed(() => [...tabs.value].sort((a, b) => a.opened - b.opened));
+let tabCounter = 0;
 const webviews:Ref<{[key: string]: any}> = ref({});
 const searchInput:Ref<HTMLInputElement|null> = ref(null);
 const searchShown = ref(false);
 const searchLastInput = ref('');
 
-const setTabRef = (el: any) => {
-	tabRef.value = el
-};
-
 const newTab = (label: string, server: number) => {
-	const key = 'tab' + Date.now()
-	tabRef.value.addTab({
-		label,
-		key,
-		server
-	});
+	const opened = ++tabCounter;
+	const key = `tab${opened}`;
+	// insert after the active tab
+	const index = tabs.value.findIndex(t => t.key == activeTab.value);
+	tabs.value.splice(index == -1 ? tabs.value.length : index + 1, 0, { key, label, server, opened });
 	activeTab.value = key
 
 	nextTick(() => {
@@ -106,13 +129,83 @@ const newTab = (label: string, server: number) => {
 	});
 };
 
-const mouseMiddle = (e: MouseEvent) => {
-	const tabEl = (e.target as HTMLElement)?.closest('.tabs-item');
-	if (tabEl) {
-		const tab = tabs.value.find(t => t.$el == tabEl);
-		if (tab) {
-			tabRef.value.removeTab(tab.key);
+// dragging tabs horizontally inside the tab bar
+const tabList: Ref<HTMLElement|null> = ref(null);
+const tabElements: { [key: string]: HTMLElement|null } = {};
+const drag: Ref<{ key: string, pointerId: number, startX: number, offset: number, moved: boolean }|null> = ref(null);
+
+const dragStart = (e: PointerEvent, key: string) => {
+	activeTab.value = key;
+	tabList.value?.setPointerCapture(e.pointerId);
+	drag.value = { key, pointerId: e.pointerId, startX: e.clientX, offset: 0, moved: false };
+};
+
+// let a swapped neighbour slide into its new place
+const slide = (el: HTMLElement, from: number) => {
+	el.style.transition = 'none';
+	el.style.transform = `translateX(${from}px)`;
+	requestAnimationFrame(() => {
+		el.style.transition = '';
+		el.style.transform = '';
+	});
+};
+
+const dragMove = (e: PointerEvent) => {
+	const d = drag.value;
+	const el = d && tabElements[d.key];
+	if (!d || !el || e.pointerId != d.pointerId) {
+		return;
+	}
+	let offset = e.clientX - d.startX;
+	if (!d.moved && Math.abs(offset) < 4) {
+		return;
+	}
+	d.moved = true;
+
+	// swap with neighbours when crossing their middle,
+	// left: position of the tab in the bar after the swaps (the dom is updated later)
+	let left = el.offsetLeft;
+	while (true) {
+		const index = tabs.value.findIndex(t => t.key == d.key);
+		const center = el.offsetLeft + offset + el.offsetWidth / 2;
+		const next = tabs.value[index + 1] && tabElements[tabs.value[index + 1].key];
+		const prev = tabs.value[index - 1] && tabElements[tabs.value[index - 1].key];
+		if (next && center > next.offsetLeft + next.offsetWidth / 2) {
+			tabs.value.splice(index + 1, 0, ...tabs.value.splice(index, 1));
+			left += next.offsetWidth;
+			slide(next, el.offsetWidth);
+		} else if (prev && center < prev.offsetLeft + prev.offsetWidth / 2) {
+			tabs.value.splice(index - 1, 0, ...tabs.value.splice(index, 1));
+			left -= prev.offsetWidth;
+			slide(prev, -el.offsetWidth);
+		} else {
+			break;
 		}
+	}
+	d.startX += left - el.offsetLeft;
+	offset -= left - el.offsetLeft;
+
+	// keep the tab inside the bar
+	const max = (tabList.value?.clientWidth || 0) - left - el.offsetWidth;
+	d.offset = Math.max(-left, Math.min(max, offset));
+};
+
+const dragEnd = (e: PointerEvent) => {
+	if (drag.value?.pointerId == e.pointerId) {
+		drag.value = null;
+	}
+};
+
+const closeTab = (key: string) => {
+	const index = tabs.value.findIndex(t => t.key == key);
+	if (index == -1) {
+		return;
+	}
+	tabs.value.splice(index, 1);
+	delete webviews.value[key];
+	if (activeTab.value == key) {
+		// activate the right neighbour, else the left one
+		activeTab.value = tabs.value[Math.min(index, tabs.value.length - 1)]?.key || '';
 	}
 };
 
@@ -208,6 +301,14 @@ onUnmounted(() => {
 	searchInput.value?.removeEventListener('keydown', searchInputKeydown)
 })
 
+watch(() => tabs.value.map(t => t.server), (servers, oldServers) => {
+	new Set(oldServers).forEach(server => {
+		if (!servers.includes(server)) {
+			emit('close-server', server);
+		}
+	});
+});
+
 defineExpose({ newTab });
 </script>
 
@@ -218,17 +319,105 @@ defineExpose({ newTab });
 	height: 100%;
 	width: 100%;
 
-	.tabs-close-icon {
-		vertical-align: top;
-		cursor: pointer;
-	}
-
 	&__nav {
 		display: flex;
+		background: #dee1e6;
 	}
 
 	&__bar {
 		flex: 1;
+		display: flex;
+		align-items: flex-end;
+		min-width: 0;
+		padding: 6px 0 0 6px;
+	}
+
+	&__list {
+		display: flex;
+		position: relative;
+		min-width: 0;
+	}
+
+	&__tab {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		flex: 0 1 220px;
+		width: 220px;
+		min-width: 48px;
+		height: 34px;
+		padding: 0 6px 0 12px;
+		border-radius: 8px 8px 0 0;
+		color: #45474a;
+		font-size: 13px;
+		cursor: default;
+		user-select: none;
+		position: relative;
+
+		// separator between inactive tabs
+		&:not(.m--active):not(:first-child)::before {
+			content: '';
+			position: absolute;
+			left: 0;
+			top: 9px;
+			bottom: 9px;
+			border-left: 1px solid #a8abb0;
+		}
+		&.m--active + &::before,
+		&:hover + &::before,
+		&:hover::before {
+			display: none;
+		}
+
+		&:hover:not(.m--active) {
+			background-color: #e9ebee;
+		}
+
+		&.m--active {
+			background-color: #fff;
+			color: #202124;
+			z-index: 1;
+		}
+
+		transition: transform 0.15s;
+
+		&.m--dragging {
+			transition: none;
+			z-index: 2;
+		}
+	}
+
+	&__label {
+		flex: 1;
+		overflow: hidden;
+		white-space: nowrap;
+		text-overflow: ellipsis;
+		text-align: left;
+	}
+
+	&__close {
+		flex: none;
+		width: 18px;
+		height: 18px;
+		padding: 0;
+		border: 0;
+		border-radius: 50%;
+		background: transparent;
+		color: inherit;
+		font-size: 16px;
+		line-height: 18px;
+
+		&:hover {
+			background-color: rgba(0, 0, 0, 0.1);
+		}
+	}
+
+	&__after {
+		display: flex;
+		align-items: center;
+		height: 34px;
+		padding: 0 6px;
+
 		button {
 			background-color: #fff;
 			border: 0;

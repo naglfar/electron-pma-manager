@@ -1,5 +1,5 @@
 <template>
-	<Tabs ref="tabs">
+	<Tabs ref="tabs" @close-server="closeConnection">
 		<template #after>
 			<button class="btn" @click="connectionList?.show()">+</button>
 		</template>
@@ -31,11 +31,16 @@ const store = useStore();
 const newConnection = async (id: number) => {
 	const connection = store.connections.find(c => c.id == id);
 	if (connection) {
-		await (<any>window).electronAPI.newConnection(toRaw(unref(connection)));
-		const tunnels: Array<Tunnel> = await (<any>window).electronAPI.getTunnels();
-		const index = tunnels.findIndex(tunnel => tunnel.connection == connection.id);
-		tabs.value?.newTab(connection.name, index+1);
+		try {
+			// phpMyAdmin server index, errors are shown by the main process
+			const server: number = await (<any>window).electronAPI.newConnection(toRaw(unref(connection)));
+			tabs.value?.newTab(connection.name, server);
+		} catch (e) {}
 	}
+}
+
+const closeConnection = async (id: number) => {
+	await (<any>window).electronAPI?.closeConnection(id);
 }
 
 onMounted(async () => {

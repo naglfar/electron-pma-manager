@@ -87,7 +87,7 @@ const fetchConnections = async () => {
 		c.favorite = !!c.favorite;
 	});
 	if (selected.value) {
-		selected.value = connections.value.find((c) => c.id = selected.value!.id);
+		selected.value = connections.value.find((c) => c.id == selected.value!.id);
 	}
 }
 

@@ -1,27 +1,24 @@
 'use strict'
 
-const fs = require('fs');
 const path = require('path');
-const os = require('os');
-const { app, BrowserWindow, globalShortcut, ipcMain, dialog, screen, Notification } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, screen, Notification } = require('electron')
 const { paths, migrateLegacyData } = require('./paths');
 const pma = require('./pma');
+const phpServer = require('./php-server');
+const { TunnelManager } = require('./tunnels');
 const electronSettings = require('electron-settings');
-const PHPServer = require('php-server-manager');
 const knex = require('knex');
-const { createTunnel } = require('tunnel-ssh');
-const SSHConfig = require('ssh-config');
-const crypto = require('crypto');
 
 const isDevelopment = process.env.NODE_ENV === 'dev';
 
 const dbConfig = require('./database/knexfile.js');
 let dbInstance;
 
-const tunnels = [];
 let settings = {};
 let pmaOptions = {};
-let phpServer;
+let tunnelManager;
+
+const getPHPPort = () => parseInt(settings.startingport, 10) || 4406;
 
 const windowStateKeeper = async (windowName) => {
 	let window, windowState;
@@ -97,6 +94,9 @@ async function createMainWindow() {
 	}
 	mainWindowStateKeeper.track(win);
 
+	// a reload of the ui closes all tabs
+	win.webContents.on('did-navigate', () => tunnelManager.closeAll());
+
 	win.webContents.session.webRequest.onHeadersReceived(
 		{ urls: [ "*://*/*" ] },
 		(d, c) => {
@@ -109,101 +109,60 @@ async function createMainWindow() {
 		}
 	);
 
+	if (isDevelopment) {
+		win.loadURL('http://127.0.0.1:3000/');
+	} else {
+		win.loadFile(path.normalize(`${__dirname}/../../dist/index.html`));
+	}
+}
+
+const registerIPC = () => {
 	ipcMain.on('set-title', (event, title) => {
-		const webContents = event.sender;
-		const win = BrowserWindow.fromWebContents(webContents);
-		win.setTitle(title);
+		BrowserWindow.fromWebContents(event.sender)?.setTitle(title);
 	});
 
+	// opens the tunnel if necessary, returns the phpMyAdmin server index
 	ipcMain.handle('new-connection', async (event, connection) => {
-
-		const existing =  await dbInstance.table('tunnels').select('id').where({'connection': connection.id}).first();
-		if (existing) { return }
-
-		// console.log(connection);
-
-		if (connection.ssh_host) {
-			const query = dbInstance.table('tunnels').max('port as port').first();
-			const lastPort = await query;
-			const port = Math.max(lastPort.port && lastPort.port, settings.startingport || 4406) + 1;
-
-			let host = connection.ssh_host;
-			let username = os.userInfo().username;
-			if (host.includes('@')) {
-				username = host.substr(0, host.indexOf('@'));
-				host = host.substr(host.indexOf('@') + 1);
-			}
-			// if (host.indexOf(':')) {
-			// 	port = host.substr(host.indexOf('@') + 1);
-			// }
-
-			const config = {
-				username,
-				host,
-				keepaliveInterval: 10000,
-				// debug: (log) => console.log(log),
-				agent: process.env.SSH_AUTH_SOCK || undefined,
-			};
-
-			try {
-				const sshConfFile = fs.readFileSync(path.normalize(`${os.homedir()}/.ssh/config`), 'utf8');
-				const sshConfig = SSHConfig.parse(sshConfFile);
-				const configHost = sshConfig.compute(host);
-				// console.log(host);
-				// console.log(configHost);
-				if (configHost.HostName) config.host = configHost.HostName;
-				if (configHost.Port) config.port = configHost.Port;
-				if (configHost.User) config.username = configHost.User;
-				if (configHost.IdentityFile) {
-					// ssh-config returns IdentityFile as array
-					let identityFile = [].concat(configHost.IdentityFile)[0];
-					if (identityFile.startsWith('~/')) {
-						identityFile = identityFile.replace('~/', `${os.homedir()}${path.sep}`);
-					}
-					config.privateKey = fs.readFileSync(identityFile);
-				}
-			} catch (err) {}
-
-			try {
-				const [server] = await createTunnel(
-					{ autoClose: false },
-					{ host: '127.0.0.1', port },
-					config,
-					{ dstAddr: '127.0.0.1', dstPort: connection.mysql_port || 3306 },
-				);
-				tunnels.push(server);
-				await dbInstance.table('tunnels').insert({connection: connection.id, port: port});
-			} catch (err) {
-				console.log(err);
-			}
-		} else {
-			await dbInstance.table('tunnels').insert({connection: connection.id, port: connection.port || 3306 });
+		try {
+			await tunnelManager.open(connection);
+			return connection.id;
+		} catch (err) {
+			dialog.showMessageBox(BrowserWindow.fromWebContents(event.sender), {
+				type: 'error',
+				title: 'Connection failed',
+				message: `Could not open connection "${connection.name}"`,
+				detail: err.message,
+			});
+			throw err;
 		}
 	});
 
+	// last tab of a connection was closed
+	ipcMain.handle('close-connection', async (event, connectionId) => {
+		await tunnelManager.close(connectionId);
+	});
+
 	ipcMain.handle('save-connection', async (event, connection) => {
+		// a changed host or port needs a new tunnel
+		const old = await dbInstance.table('connections').where({ id: connection.id }).first();
+		if (old && (old.ssh_host != connection.ssh_host || old.mysql_port != connection.mysql_port)) {
+			await tunnelManager.close(connection.id);
+		}
 		// convert boolean to sqlite integer
 		connection.favorite = connection.favorite ? 1 : 0;
-		const query = dbInstance.table('connections').insert({...connection}).onConflict('id').merge();
-		return await query;
+		return await dbInstance.table('connections').insert({...connection}).onConflict('id').merge();
 	});
 
 	ipcMain.handle('delete-connection', async (event, connectionId) => {
-		const query = dbInstance.table('connections').where({'id': connectionId}).del();
-		return await query;
+		await tunnelManager.close(connectionId);
+		return await dbInstance.table('connections').where({'id': connectionId}).del();
 	});
 
 	ipcMain.handle('get-connections', async () => {
-		const query = dbInstance.table('connections').select('*').orderBy('name');
-		const connections = await query;
+		const connections = await dbInstance.table('connections').select('*').orderBy('name');
 		// convert sqlite integer field to boolean
 		connections.forEach(c => c.favorite = !!c.favorite);
 		return connections;
-	});
-
-	ipcMain.handle('get-tunnels', async () => {
-		const query = dbInstance.table('tunnels').select('*');
-		return await query;
 	});
 
 	ipcMain.handle('get-settings', () => {
@@ -215,11 +174,8 @@ async function createMainWindow() {
 		const keys = [];
 		for (let [key, value] of Object.entries(settings)) {
 			keys.push(key);
-			const q = query.clone();
-			q.insert({ 'key': key, 'value': value })
-			q.onConflict('key').merge();
-			await q;
-		};
+			await query.clone().insert({ 'key': key, 'value': value }).onConflict('key').merge();
+		}
 		await query.clone().del().whereNotIn('key', keys);
 	});
 
@@ -236,88 +192,65 @@ async function createMainWindow() {
 	});
 
 	ipcMain.handle('pma-update', async (event, version) => {
+		const win = BrowserWindow.fromWebContents(event.sender);
 		const onProgress = (step, progress) => {
 			win.setProgressBar(progress);
 			win.webContents.send('pma-update-progress', { step, progress });
 		};
 		try {
-			await pma.install(version, onProgress, async () => phpServer.close());
+			await pma.install(version, onProgress, () => phpServer.stop());
 		} finally {
 			win.setProgressBar(-1);
-			if (!phpServer.process) {
-				await startPHPServer();
+			if (!phpServer.isRunning()) {
+				await phpServer.start(getPHPPort());
 			}
 		}
-		pmaOptions = await getPMAOptions();
+		pmaOptions = await phpServer.getPMAOptions();
 		return pmaOptions;
 	});
+};
 
-	if (isDevelopment) {
-		win.loadURL('http://127.0.0.1:3000/');
-	} else {
-		win.loadFile(path.normalize(`${__dirname}/../../dist/index.html`));
-	}
-}
-
-const quit = async () => {
-	try {
-		tunnels.forEach(tunnel => tunnel.close());
-		phpServer?.close();
-		await dbInstance.table('tunnels').del();
-		await dbInstance.destroy();
-	} catch(e) {}
-	app.quit()
-}
-
-const checkPHP = () => {
-	function hasbin (bin) {
-		return getPaths(bin).some(fileExists);
-	}
-	function getPaths (bin) {
-		var envPath = (process.env.PATH || '');
-		var envExt = (process.env.PATHEXT || '');
-		return envPath.replace(/["]+/g, '').split(path.delimiter).map(function (chunk) {
-			return envExt.split(path.delimiter).map(function (ext) {
-				return path.join(chunk, bin + ext);
-			});
-		}).reduce(function (a, b) {
-			return a.concat(b);
+// asks to trust an unknown ssh host key, warns about changed / revoked ones
+const confirmHostKey = async (info) => {
+	const parent = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+	const keyInfo = `${info.type} key fingerprint is ${info.fingerprint}.`;
+	if (info.status == 'unknown') {
+		const known = info.knownTypes.length ? `\n\nKnown key types for this host: ${info.knownTypes.join(', ')}.` : '';
+		const { response } = await dialog.showMessageBox(parent, {
+			type: 'question',
+			title: 'Unknown SSH host',
+			message: `The authenticity of host ${info.host} can't be established.`,
+			detail: `${keyInfo}${known}\n\nConnecting adds the key to your known_hosts file.`,
+			buttons: ['Connect', 'Cancel'],
+			defaultId: 1,
+			cancelId: 1,
 		});
+		return response == 0;
 	}
-	function fileExists (filePath) {
-		try {
-			return fs.statSync(filePath).isFile();
-		} catch (error) {
-			return false;
-		}
-	}
-	return hasbin('php');
-}
-
-const startPHPServer = async () => {
-	fs.mkdirSync(paths.pmaTmp, { recursive: true });
-
-	let secret = await electronSettings.get('pmaSecret');
-	if (!secret) {
-		secret = crypto.randomBytes(32).toString('hex');
-		await electronSettings.set('pmaSecret', secret);
-	}
-
-	phpServer = new PHPServer({
-		port: settings.startingport || 4406,
-		directory: paths.pma,
-		stdio: 'ignore',
-		directives: {
-			display_errors: 1,
-			expose_php: 1
-		},
-		env: {
-			PMA_MANAGER_DB: paths.db,
-			PMA_MANAGER_TMP: paths.pmaTmp,
-			PMA_MANAGER_SECRET: secret,
-		},
+	await dialog.showMessageBox(parent, {
+		type: 'error',
+		title: 'SSH host key verification failed',
+		message: info.status == 'changed'
+			? `The host key of ${info.host} has changed!`
+			: `The host key of ${info.host} is revoked!`,
+		detail: `${keyInfo}\n\nSomeone could be eavesdropping on you (man-in-the-middle attack), or the host key has just been changed. `
+			+ `If the change is expected, remove the old key with:\n\nssh-keygen -R '${info.host}'`,
 	});
-	await phpServer.run();
+	return false;
+};
+
+let quitting = false;
+const quit = async () => {
+	if (quitting) return;
+	quitting = true;
+	try {
+		await tunnelManager?.closeAll();
+		await phpServer.stop();
+		await dbInstance?.destroy();
+	} catch(e) {
+		console.error(e);
+	}
+	app.quit();
 };
 
 // small window showing the progress of the first phpMyAdmin installation
@@ -392,35 +325,6 @@ const notifyPMAUpdate = async () => {
 	} catch (e) {}
 };
 
-const getPMAOptions = async () => {
-	return await new Promise(r => {
-		const http = require('http');
-		const req = http.request({
-			hostname: phpServer.host,
-			port: settings.startingport || 4406,
-			path: '/pmadata.php',
-			method: 'GET'
-		}, res => {
-			var body = '';
-			res.on('data', data => {
-				body += data;
-			});
-			res.on('end', () => {
-				try {
-					const json = JSON.parse(body)
-					r(json);
-				} catch(e) {
-					r([]);
-				}
-			})
-		});
-		req.on('error', error => {
-			r([]);
-		})
-		req.end()
-	})
-};
-
 // Quit when all windows are closed.
 app.on('window-all-closed', quit);
 
@@ -437,9 +341,9 @@ app.on('ready', async () => {
 		process.on('SIGTERM', quit);
 	}
 
-	if (!checkPHP()) {
+	if (!phpServer.hasPHP()) {
 		dialog.showErrorBox('PHP missing', `PHP is required to be installed and in your PATH for this.`);
-		app.quit();
+		return quit();
 	}
 
 	migrateLegacyData();
@@ -449,13 +353,16 @@ app.on('ready', async () => {
 		await dbInstance.migrate.latest();
 	} catch(err) {
 		dialog.showErrorBox('DB Error', `Your database seems to be broken:\n\n${err.stack}`);
-		app.quit();
+		return quit();
 	}
 
 	const settingsRows = await dbInstance.table('settings');
 	settingsRows.forEach((s) => {
 		settings[s.key] = s.value;
 	});
+
+	tunnelManager = new TunnelManager(dbInstance, () => getPHPPort() + 1, { onHostKey: confirmHostKey });
+	await tunnelManager.reset();
 
 	let progressWindow;
 	if (!pma.isInstalled()) {
@@ -469,10 +376,17 @@ app.on('ready', async () => {
 	// update pma extensions if changed
 	pma.updateExtensions();
 
-	await startPHPServer();
+	try {
+		await phpServer.start(getPHPPort());
+	} catch (err) {
+		progressWindow?.close();
+		dialog.showErrorBox('Error starting PHP', err.message);
+		return quit();
+	}
 
-	pmaOptions = await getPMAOptions();
+	pmaOptions = await phpServer.getPMAOptions();
 
+	registerIPC();
 	await createMainWindow();
 	progressWindow?.close();
 

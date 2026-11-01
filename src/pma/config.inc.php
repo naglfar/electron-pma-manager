@@ -3,8 +3,6 @@ declare(strict_types=1);
 
 // TODO: restrict access to client via key in db
 
-$i = 0;
-
 $settings = [];
 try {
 	// paths are passed by the electron process
@@ -16,7 +14,8 @@ try {
 
 	$res = $db->query('SELECT * FROM tunnels t LEFT JOIN connections c ON t.connection = c.id');
 	while($row = $res->fetchArray()) {
-		$i += 1;
+		// server index is the connection id, used by the tabs
+		$i = (int) $row['connection'];
 		$cfg['Servers'][$i]['verbose'] = $row['name'];
 		$cfg['Servers'][$i]['auth_type'] = 'config';
 		$cfg['Servers'][$i]['host'] = '127.0.0.1';
