@@ -18,13 +18,16 @@
 						:key="connection.id"
 						:class="{
 							'marked': marked == connection.id,
-							'hide': matched.length && !matched.includes(connection.id)
+							'hide': matched && !matched.includes(connection.id)
 						}"
 						@click="select(connection.id)"
 					>
 						{{connection.name}}
 					</li>
 				</ul>
+				<div class="c-connectionlist__nomatch" v-show="matched && matched.length == 0">
+					No matching connections
+				</div>
 			</div>
 			<div class="c-connectionlist__empty" v-show="store.connections.length == 0">
 				No connections
@@ -47,7 +50,8 @@ const input = ref<HTMLInputElement | null>(null);
 const connectionManager = ref<typeof ConnectionManager | null>(null);
 let showModal = ref(false);
 let marked: Ref<number|undefined> = ref();
-let matched: Ref<Array<any>> = ref([]);
+// ids matching the filter, null without filter
+let matched: Ref<Array<number>|null> = ref(null);
 
 const emit = defineEmits(['select']);
 
@@ -64,11 +68,14 @@ const show = async () => {
 }
 
 const filter = (e: Event) => {
-	const input = e.target as HTMLInputElement;
-	const cs = store.connections.filter((c) => c.name.indexOf(input.value) != -1);
-	const c = cs[0];
-	if (input.value && c) { marked.value = c.id; }
-	else { marked.value = undefined; }
+	const query = (e.target as HTMLInputElement).value.trim().toLowerCase();
+	if (!query) {
+		marked.value = undefined;
+		matched.value = null;
+		return;
+	}
+	const cs = store.connections.filter((c) => c.name.toLowerCase().includes(query));
+	marked.value = cs[0]?.id;
 	matched.value = cs.map(c => c.id);
 }
 
@@ -82,7 +89,23 @@ defineExpose({ show });
 
 <style lang="scss" scoped>
 .c-connectionlist {
+	// the list scrolls, filter and buttons stay visible
+	max-height: min(80vh, 600px);
+
+	&__list {
+		display: flex;
+		flex-direction: column;
+		flex: 1 1 auto;
+		min-height: 0;
+	}
+
+	&__nomatch {
+		padding: 12px;
+		opacity: 0.7;
+	}
+
 	&__filter {
+		flex: none;
 		width: 100%;
 		padding: 4px 12px;
 		border-radius: 3px;
@@ -98,7 +121,10 @@ defineExpose({ show });
 		margin: 0;
 		list-style-type: none;
 		text-align: left;
+		flex: 1 1 auto;
+		min-height: 0;
 		overflow: auto;
+		margin-top: 8px;
 
 		li {
 			position: relative;
@@ -131,6 +157,7 @@ defineExpose({ show });
 	}
 
 	&__buttons {
+		flex: none;
 		display: flex;
 		flex-direction: row;
 		gap: 6px;

@@ -5,7 +5,7 @@
   	>
 		<div class="c-cman o-modal">
 			<div class="c-cman__connections">
-				<div class="c-cman__list">
+				<div class="c-cman__list" ref="list">
 					<ul>
 						<li
 							v-for="connection in connections"
@@ -71,11 +71,12 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, Ref, toRaw, unref } from 'vue';
+import { nextTick, onMounted, ref, Ref, toRaw, unref } from 'vue';
 import { useStore } from '../store';
 const store = useStore();
 
 let showModal = ref(false);
+const list = ref<HTMLElement|null>(null);
 const selected:Ref<Connection|undefined> = ref();
 
 let connections:Ref<Array<Connection>> = ref([]);
@@ -109,6 +110,8 @@ const add = async() => {
 	};
 	connections.value.push(c);
 	selected.value = c;
+	// new connections are at the end of the list
+	nextTick(() => list.value?.querySelector('li.selected')?.scrollIntoView({ block: 'nearest' }));
 }
 
 const remove = async() => {
@@ -154,7 +157,10 @@ defineExpose({ show });
 	}
 
 	&__list {
-		flex: 1;
+		// scrolls, the buttons below stay visible
+		flex: 1 1 auto;
+		min-height: 0;
+		overflow: auto;
 		background-color: var(--c-surface-raised);
 		border-radius: 3px;
 		border: 1px solid var(--c-border);
@@ -164,7 +170,6 @@ defineExpose({ show });
 			margin: 0 8px;
 			list-style-type: none;
 			text-align: left;
-			overflow: auto;
 
 			li {
 				position: relative;
@@ -193,6 +198,7 @@ defineExpose({ show });
 		}
 	}
 	&__listbuttons {
+		flex: none;
 		display: flex;
 		gap: 8px;
 
