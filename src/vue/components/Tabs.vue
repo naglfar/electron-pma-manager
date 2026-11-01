@@ -2,29 +2,33 @@
 <div class="c-tabs">
 	<nav class="c-tabs__nav">
 		<div class="c-tabs__bar" @wheel.passive="mouseWheel">
-			<!-- pointer capture on the list, the tabs are moved in the dom while dragging -->
-			<div
-				class="c-tabs__list"
-				ref="tabList"
-				@pointermove="dragMove"
-				@pointerup="dragEnd"
-				@pointercancel="dragEnd"
-				@lostpointercapture="dragEnd"
-			>
+			<!-- fades at the edges show tabs scrolled out of view -->
+			<div class="c-tabs__listwrap" :class="{ 'm--moreleft': moreLeft, 'm--moreright': moreRight }">
+				<!-- pointer capture on the list, the tabs are moved in the dom while dragging -->
 				<div
-					v-for="tab in tabs"
-					:key="tab.key"
-					:ref="(el: any) => { tabElements[tab.key] = el; }"
-					class="c-tabs__tab"
-					:class="{ 'm--active': tab.key == activeTab, 'm--dragging': drag?.key == tab.key && drag.moved }"
-					:style="drag?.key == tab.key ? { transform: `translateX(${drag.offset}px)` } : undefined"
-					:title="tab.label"
-					@pointerdown.left="dragStart($event, tab.key)"
-					@mousedown.middle.prevent
-					@mouseup.middle="closeTab(tab.key)"
+					class="c-tabs__list"
+					ref="tabList"
+					@scroll.passive="updateOverflow"
+					@pointermove="dragMove"
+					@pointerup="dragEnd"
+					@pointercancel="dragEnd"
+					@lostpointercapture="dragEnd"
 				>
-					<span class="c-tabs__label">{{ tab.label }}</span>
-					<button class="c-tabs__close" title="Close tab" @pointerdown.stop @click.stop="closeTab(tab.key)">&times;</button>
+					<div
+						v-for="tab in tabs"
+						:key="tab.key"
+						:ref="(el: any) => { tabElements[tab.key] = el; }"
+						class="c-tabs__tab"
+						:class="{ 'm--active': tab.key == activeTab, 'm--dragging': drag?.key == tab.key && drag.moved }"
+						:style="drag?.key == tab.key ? { transform: `translateX(${drag.offset}px)` } : undefined"
+						:title="tab.label"
+						@pointerdown.left="dragStart($event, tab.key)"
+						@mousedown.middle.prevent
+						@mouseup.middle="closeTab(tab.key)"
+					>
+						<span class="c-tabs__label">{{ tab.label }}</span>
+						<button class="c-tabs__close" title="Close tab" @pointerdown.stop @click.stop="closeTab(tab.key)">&times;</button>
+					</div>
 				</div>
 			</div>
 			<div class="c-tabs__after">
@@ -186,13 +190,28 @@ const dragMove = (e: PointerEvent) => {
 	offset -= left - el.offsetLeft;
 
 	// keep the tab inside the bar
-	const max = (tabList.value?.clientWidth || 0) - left - el.offsetWidth;
+	const list = tabList.value;
+	const max = (list?.scrollWidth || 0) - left - el.offsetWidth;
 	d.offset = Math.max(-left, Math.min(max, offset));
+
+	// scroll an overflowing bar along
+	if (list) {
+		const visualLeft = left + d.offset;
+		if (visualLeft < list.scrollLeft) {
+			list.scrollLeft = visualLeft;
+		} else if (visualLeft + el.offsetWidth > list.scrollLeft + list.clientWidth) {
+			list.scrollLeft = visualLeft + el.offsetWidth - list.clientWidth;
+		}
+	}
 };
 
 const dragEnd = (e: PointerEvent) => {
 	if (drag.value?.pointerId == e.pointerId) {
+		const clicked = !drag.value.moved;
 		drag.value = null;
+		if (clicked) {
+			scrollActiveIntoView();
+		}
 	}
 };
 
@@ -301,6 +320,41 @@ onUnmounted(() => {
 	searchInput.value?.removeEventListener('keydown', searchInputKeydown)
 })
 
+// tabs that don't fit into the bar: the list scrolls
+const moreLeft = ref(false);
+const moreRight = ref(false);
+
+const scrollActiveIntoView = () => {
+	if (!drag.value) {
+		tabElements[activeTab.value]?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+	}
+};
+
+const updateOverflow = () => {
+	const list = tabList.value;
+	moreLeft.value = !!list && list.scrollLeft > 1;
+	moreRight.value = !!list && list.scrollLeft + list.clientWidth < list.scrollWidth - 1;
+};
+
+// keep the active tab visible in an overflowing bar
+watch(activeTab, () => nextTick(scrollActiveIntoView));
+watch(() => tabs.value.length, () => nextTick(updateOverflow));
+watch(activeTab, () => nextTick(updateOverflow));
+
+let resizeObserver: ResizeObserver|null = null;
+onMounted(() => {
+	resizeObserver = new ResizeObserver(() => {
+		updateOverflow();
+		scrollActiveIntoView();
+	});
+	if (tabList.value) {
+		resizeObserver.observe(tabList.value);
+	}
+});
+onUnmounted(() => {
+	resizeObserver?.disconnect();
+});
+
 // changed phpMyAdmin theme: reload hidden tabs now, the visible one when it is left
 // (or right away for changes from the settings), so no unsaved input is lost unasked
 const pendingReload = new Set<string>();
@@ -360,10 +414,48 @@ defineExpose({ newTab });
 		padding: 6px 0 0 6px;
 	}
 
+	&__listwrap {
+		position: relative;
+		display: flex;
+		min-width: 0;
+
+		&::before,
+		&::after {
+			content: '';
+			position: absolute;
+			z-index: 3;
+			top: 0;
+			bottom: 0;
+			width: 24px;
+			pointer-events: none;
+			opacity: 0;
+			transition: opacity 0.15s;
+		}
+		&::before {
+			left: 0;
+			background: linear-gradient(to right, var(--c-bar), transparent);
+		}
+		&::after {
+			right: 0;
+			background: linear-gradient(to left, var(--c-bar), transparent);
+		}
+		&.m--moreleft::before,
+		&.m--moreright::after {
+			opacity: 1;
+		}
+	}
+
 	&__list {
 		display: flex;
 		position: relative;
 		min-width: 0;
+		overflow-x: auto;
+		overflow-y: hidden;
+		scrollbar-width: none;
+
+		&::-webkit-scrollbar {
+			display: none;
+		}
 	}
 
 	&__tab {
@@ -372,7 +464,8 @@ defineExpose({ newTab });
 		gap: 4px;
 		flex: 0 1 220px;
 		width: 220px;
-		min-width: 48px;
+		// 3 characters, ellipsis and close button
+		min-width: 80px;
 		height: 34px;
 		padding: 0 6px 0 12px;
 		border-radius: 8px 8px 0 0;
