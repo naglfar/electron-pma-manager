@@ -42,22 +42,22 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, onMounted, ref, Ref } from 'vue';
+import { nextTick, ref, Ref } from 'vue';
 import { useStore } from '../store';
 import ConnectionManager from './ConnectionManager.vue'
 const store = useStore();
 const input = ref<HTMLInputElement | null>(null);
 const connectionManager = ref<typeof ConnectionManager | null>(null);
-let showModal = ref(false);
-let marked: Ref<number|undefined> = ref();
+const showModal = ref(false);
+const marked: Ref<number|undefined> = ref();
 // ids matching the filter, null without filter
-let matched: Ref<Array<number>|null> = ref(null);
+const matched: Ref<Array<number>|null> = ref(null);
 
 const emit = defineEmits(['select']);
 
 const show = async () => {
 	showModal.value = true;
-	store.connections = await (<any>window).electronAPI.getConnections();
+	store.connections = await window.electronAPI?.getConnections() ?? [];
 
 	// wait for modal to render, seemingly needs two ticks
 	nextTick(() => {

@@ -64,7 +64,9 @@ const resolveSSHOptions = (sshHost, sshConfigText) => {
 					options.privateKey = key;
 					break;
 				}
-			} catch (e) {}
+			} catch (e) {
+				// missing or unreadable key file, try the next one
+			}
 		}
 		if (configHost.StrictHostKeyChecking) {
 			strictHostKeyChecking = String(configHost.StrictHostKeyChecking).toLowerCase();
@@ -78,7 +80,9 @@ const resolveSSHOptions = (sshHost, sshConfigText) => {
 			knownHostsOptions.globalFiles = files.includes('none') ? [] : files;
 		}
 		knownHostsOptions.hashHosts = String(configHost.HashKnownHosts || '').toLowerCase() == 'yes';
-	} catch (e) {}
+	} catch (e) {
+		// no ~/.ssh/config
+	}
 
 	const knownHosts = new KnownHosts(knownHostsOptions);
 	options.algorithms = {
@@ -89,9 +93,11 @@ const resolveSSHOptions = (sshHost, sshConfigText) => {
 };
 
 class Tunnel {
+	// dstHost: mysql host as seen from the ssh server
 	// verifyHostKey: (key) => Promise<{ ok, reason }>
-	constructor(sshOptions, dstPort, verifyHostKey) {
+	constructor(sshOptions, dstHost, dstPort, verifyHostKey) {
 		this.sshOptions = sshOptions;
+		this.dstHost = dstHost;
 		this.dstPort = dstPort;
 		this.verifyHostKey = verifyHostKey;
 		this.server = null;
@@ -183,7 +189,7 @@ class Tunnel {
 		socket.on('error', () => {});
 		try {
 			const client = await this.getClient();
-			client.forwardOut(LOCAL_HOST, socket.remotePort || 0, '127.0.0.1', this.dstPort, (err, stream) => {
+			client.forwardOut(LOCAL_HOST, socket.remotePort || 0, this.dstHost, this.dstPort, (err, stream) => {
 				if (err || socket.destroyed) {
 					if (err) console.error('SSH forward failed', err.message);
 					socket.destroy();
@@ -280,10 +286,12 @@ class TunnelManager {
 		}
 
 		const dstPort = parseInt(connection.mysql_port, 10) || 3306;
+		const dstHost = (connection.mysql_host || '').trim() || '127.0.0.1';
+		// without ssh phpMyAdmin connects directly, see config.inc.php
 		let port = dstPort;
 		if (connection.ssh_host) {
 			const resolved = resolveSSHOptions(connection.ssh_host, this.sshConfigText);
-			const tunnel = new Tunnel(resolved.ssh, dstPort, key => this.verifyHostKey(resolved, key));
+			const tunnel = new Tunnel(resolved.ssh, dstHost, dstPort, key => this.verifyHostKey(resolved, key));
 			await tunnel.open(this.getStartPort());
 			port = tunnel.port;
 			this.tunnels.set(connection.id, tunnel);

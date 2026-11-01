@@ -8,7 +8,7 @@ const net = require('net');
 const http = require('http');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
-const electronSettings = require('electron-settings');
+const appState = require('./app-state');
 const { paths } = require('./paths');
 
 const HOST = '127.0.0.1';
@@ -45,11 +45,11 @@ const isPortFree = (p) => new Promise((resolve) => {
 	server.listen(p, HOST, () => server.close(() => resolve(true)));
 });
 
-const getSecret = async () => {
-	let secret = await electronSettings.get('pmaSecret');
+const getSecret = () => {
+	let secret = appState.get('pmaSecret');
 	if (!secret) {
 		secret = crypto.randomBytes(32).toString('hex');
-		await electronSettings.set('pmaSecret', secret);
+		appState.set('pmaSecret', secret);
 	}
 	return secret;
 };
@@ -105,7 +105,7 @@ const start = async (serverPort) => {
 			...process.env,
 			PMA_MANAGER_DB: paths.db,
 			PMA_MANAGER_TMP: paths.pmaTmp,
-			PMA_MANAGER_SECRET: await getSecret(),
+			PMA_MANAGER_SECRET: getSecret(),
 			PMA_MANAGER_TOKEN: token,
 		},
 	});

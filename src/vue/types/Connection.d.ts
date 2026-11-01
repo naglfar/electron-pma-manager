@@ -4,6 +4,7 @@ declare type Connection = {
 	mysql_user?: string,
 	mysql_password?: string,
 	mysql_password_ask?: boolean,
+	mysql_host?: string,
 	mysql_port?: string,
 	ssh_host?: string,
 	favorite?: boolean,

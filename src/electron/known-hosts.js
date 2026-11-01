@@ -130,7 +130,9 @@ class KnownHosts {
 		try {
 			const content = fs.readFileSync(file, 'utf8');
 			if (content && !content.endsWith('\n')) prefix = '\n';
-		} catch (e) {}
+		} catch (e) {
+			// no file yet
+		}
 		fs.appendFileSync(file, `${prefix}${name} ${keyType(blob)} ${blob.toString('base64')}\n`, { mode: 0o600 });
 	}
 }

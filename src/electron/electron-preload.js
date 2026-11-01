@@ -13,8 +13,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
 	getPMAOptions: () => ipcRenderer.invoke('get-pmaoptions'),
 	getPMAUrl: () => ipcRenderer.invoke('get-pma-url'),
 	connectionNeedsPassword: (connectionId) => ipcRenderer.invoke('connection-needs-password', connectionId),
+	forgetPassword: (connectionId) => ipcRenderer.invoke('forget-password', connectionId),
 	pmaCheckUpdate: () => ipcRenderer.invoke('pma-check-update'),
 	pmaUpdate: (version) => ipcRenderer.invoke('pma-update', version),
 	onPMAUpdateProgress: (callback) => ipcRenderer.on('pma-update-progress', (event, data) => callback(data)),
 	onPMAThemeChanged: (callback) => ipcRenderer.on('pma-theme-changed', (event, data) => callback(data)),
+	onPMAUrlChanged: (callback) => ipcRenderer.on('pma-url-changed', (event, url) => callback(url)),
 })

@@ -12,11 +12,14 @@
     "build-vue": "vue-tsc --noEmit && vite build",
     "build-electron:dir": "electron-builder --dir",
     "build-electron:dist": "electron-builder",
-    "build-electron:all": "electron-builder -wl"
+    "build-electron:all": "electron-builder -wl",
+    "lint": "eslint .",
+    "test": "npm run test:node && npm run test:electron",
+    "test:node": "node --test \"test/node/*.test.cjs\"",
+    "test:electron": "electron test/electron/runner.cjs"
   },
   "dependencies": {
     "adm-zip": "^0.6.1",
-    "electron-settings": "^4.0.4",
     "knex": "^3.3.0",
     "sqlite3": "^6.0.1",
     "ssh-config": "^5.3.0",
@@ -24,16 +27,22 @@
     "tar": "^7.5.22"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@vitejs/plugin-vue": "^6.0.10",
     "@vue/devtools-api": "^8.2.1",
     "electron": "^45.2.1",
     "electron-builder": "^26.18.0",
+    "eslint": "^10.14.0",
+    "eslint-plugin-vue": "^10.12.0",
+    "globals": "^17.14.0",
     "pinia": "^4.1.0",
     "sanitize.css": "^13.0.0",
     "sass": "^1.107.1",
     "typescript": "~5.9.3",
+    "typescript-eslint": "^8.72.1",
     "vite": "^8.3.5",
     "vue": "^3.5.44",
+    "vue-eslint-parser": "^10.4.1",
     "vue-tsc": "3.3.11",
     "vue-universal-modal": "^1.1.4",
     "vue3-tabs-component": "^1.4.0"

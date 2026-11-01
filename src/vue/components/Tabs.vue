@@ -63,7 +63,7 @@
 			<!-- preload and security settings are set by the main process, see pma-session.js -->
 			<webview
 				v-if="pmaUrl"
-				:ref="(el: any) => { webviews[tab.key] = el; }"
+				:ref="(el: unknown) => { webviews[tab.key] = el as WebviewTag | null; }"
 				style="position: relative;"
 				partition="pma"
 				allowpopups
@@ -82,11 +82,17 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, Ref, watch } from 'vue'
+import { shortcutOf, Shortcut } from '../shortcuts';
+import type { IpcMessageEvent, WebviewTag } from 'electron';
 
 
 const emit = defineEmits<{
 	// no tab of this server is left
 	(e: 'close-server', server: number): void
+	// ctrl+t
+	(e: 'new-tab'): void
+	// mysql rejected the password of this server
+	(e: 'access-denied', server: number): void
 }>();
 
 interface PMATab {
@@ -101,7 +107,7 @@ const tabs: Ref<Array<PMATab>> = ref([]);
 // order of opening, for the webviews
 const pages = computed(() => [...tabs.value].sort((a, b) => a.opened - b.opened));
 let tabCounter = 0;
-const webviews:Ref<{[key: string]: any}> = ref({});
+const webviews: Ref<{[key: string]: WebviewTag | null}> = ref({});
 const searchInput:Ref<HTMLInputElement|null> = ref(null);
 const searchShown = ref(false);
 const searchLastInput = ref('');
@@ -114,32 +120,31 @@ const newTab = (label: string, server: number) => {
 	tabs.value.splice(index == -1 ? tabs.value.length : index + 1, 0, { key, label, server, opened });
 	activeTab.value = key
 
+	// messages of webview-preload.js, registered once (not per page load)
 	nextTick(() => {
-		const webview = webviews.value[key];
-		webview.addEventListener('dom-ready', async () => {
-			// webview.openDevTools();
-			// FIXME: type?
-			webview.addEventListener('ipc-message', (e: any) => {
-				if (e.channel === 'webview-keypress') {
-					if (e.args[0] == 'ctrl-f') {
-						showSearch();
-						doSearch();
-					}
-				}
-			})
-		})
+		webviews.value[key]?.addEventListener('ipc-message', (e: IpcMessageEvent) => {
+			if (e.channel == 'shortcut') {
+				handleShortcut(e.args[0]);
+			} else if (e.channel == 'access-denied') {
+				emit('access-denied', server);
+			}
+		});
 	});
 };
 
 // dragging tabs horizontally inside the tab bar
 const tabList: Ref<HTMLElement|null> = ref(null);
 const tabElements: { [key: string]: HTMLElement|null } = {};
-const drag: Ref<{ key: string, pointerId: number, startX: number, offset: number, moved: boolean }|null> = ref(null);
+const drag: Ref<{ key: string, pointerId: number, startX: number, clientX: number, offset: number, moved: boolean }|null> = ref(null);
 
 const dragStart = (e: PointerEvent, key: string) => {
 	activeTab.value = key;
-	tabList.value?.setPointerCapture(e.pointerId);
-	drag.value = { key, pointerId: e.pointerId, startX: e.clientX, offset: 0, moved: false };
+	try {
+		tabList.value?.setPointerCapture(e.pointerId);
+	} catch (err) {
+		// pointer already released
+	}
+	drag.value = { key, pointerId: e.pointerId, startX: e.clientX, clientX: e.clientX, offset: 0, moved: false };
 };
 
 // let a swapped neighbour slide into its new place
@@ -153,30 +158,48 @@ const slide = (el: HTMLElement, from: number) => {
 };
 
 const dragMove = (e: PointerEvent) => {
+	if (drag.value && e.pointerId == drag.value.pointerId) {
+		drag.value.clientX = e.clientX;
+		updateDrag();
+	}
+};
+
+const updateDrag = () => {
 	const d = drag.value;
 	const el = d && tabElements[d.key];
-	if (!d || !el || e.pointerId != d.pointerId) {
+	const list = tabList.value;
+	if (!d || !el || !list) {
 		return;
 	}
-	let offset = e.clientX - d.startX;
+	let offset = d.clientX - d.startX;
 	if (!d.moved && Math.abs(offset) < 4) {
 		return;
 	}
-	d.moved = true;
+	if (!d.moved) {
+		d.moved = true;
+		requestAnimationFrame(autoScroll);
+	}
+
+	// stay in the visible part of an overflowing bar, autoScroll moves it
+	offset = Math.max(list.scrollLeft - el.offsetLeft, Math.min(list.scrollLeft + list.clientWidth - el.offsetWidth - el.offsetLeft, offset));
 
 	// swap with neighbours when crossing their middle,
 	// left: position of the tab in the bar after the swaps (the dom is updated later)
+	// only one direction per update, a tab exactly on a middle would swap back and forth
 	let left = el.offsetLeft;
+	let direction = 0;
 	while (true) {
 		const index = tabs.value.findIndex(t => t.key == d.key);
 		const center = el.offsetLeft + offset + el.offsetWidth / 2;
 		const next = tabs.value[index + 1] && tabElements[tabs.value[index + 1].key];
 		const prev = tabs.value[index - 1] && tabElements[tabs.value[index - 1].key];
-		if (next && center > next.offsetLeft + next.offsetWidth / 2) {
+		if (direction >= 0 && next && center >= next.offsetLeft + next.offsetWidth / 2) {
+			direction = 1;
 			tabs.value.splice(index + 1, 0, ...tabs.value.splice(index, 1));
 			left += next.offsetWidth;
 			slide(next, el.offsetWidth);
-		} else if (prev && center < prev.offsetLeft + prev.offsetWidth / 2) {
+		} else if (direction <= 0 && prev && center <= prev.offsetLeft + prev.offsetWidth / 2) {
+			direction = -1;
 			tabs.value.splice(index - 1, 0, ...tabs.value.splice(index, 1));
 			left -= prev.offsetWidth;
 			slide(prev, -el.offsetWidth);
@@ -188,19 +211,37 @@ const dragMove = (e: PointerEvent) => {
 	offset -= left - el.offsetLeft;
 
 	// keep the tab inside the bar
-	const list = tabList.value;
-	const max = (list?.scrollWidth || 0) - left - el.offsetWidth;
+	const max = list.scrollWidth - left - el.offsetWidth;
 	d.offset = Math.max(-left, Math.min(max, offset));
+};
 
-	// scroll an overflowing bar along
-	if (list) {
-		const visualLeft = left + d.offset;
-		if (visualLeft < list.scrollLeft) {
-			list.scrollLeft = visualLeft;
-		} else if (visualLeft + el.offsetWidth > list.scrollLeft + list.clientWidth) {
-			list.scrollLeft = visualLeft + el.offsetWidth - list.clientWidth;
+// a tab held at the edge of an overflowing bar scrolls it, faster further out
+const AUTOSCROLL_EDGE = 32;
+const AUTOSCROLL_MAX_SPEED = 12;
+const autoScroll = () => {
+	const d = drag.value;
+	const list = tabList.value;
+	if (!d || !d.moved || !list) {
+		return;
+	}
+	const rect = list.getBoundingClientRect();
+	let speed = 0;
+	if (d.clientX < rect.left + AUTOSCROLL_EDGE) {
+		speed = -Math.min(AUTOSCROLL_MAX_SPEED, (rect.left + AUTOSCROLL_EDGE - d.clientX) / 4 + 1);
+	} else if (d.clientX > rect.right - AUTOSCROLL_EDGE) {
+		speed = Math.min(AUTOSCROLL_MAX_SPEED, (d.clientX - rect.right + AUTOSCROLL_EDGE) / 4 + 1);
+	}
+	if (speed) {
+		const before = list.scrollLeft;
+		list.scrollLeft += speed;
+		// the pointer stays, the content below it moved
+		const delta = list.scrollLeft - before;
+		if (delta) {
+			d.startX -= delta;
+			updateDrag();
 		}
 	}
+	requestAnimationFrame(autoScroll);
 };
 
 const dragEnd = (e: PointerEvent) => {
@@ -240,7 +281,7 @@ const mouseWheel = (e: WheelEvent) => {
 	}
 };
 
-let menuButton = ref();
+const menuButton = ref();
 const menuClick = () => {
 	if (menuButton.value == document.activeElement) {
 		setTimeout(() => {
@@ -249,12 +290,10 @@ const menuClick = () => {
 	}
 };
 const webviewDevtools = () => {
-	const webview = webviews.value[activeTab.value];
-	webview.openDevTools();
+	webviews.value[activeTab.value]?.openDevTools();
 };
 const webviewReload = () => {
-	const webview = webviews.value[activeTab.value];
-	webview.reload();
+	webviews.value[activeTab.value]?.reload();
 };
 const webviewDuplicate = () => {
 	const tab = tabs.value.find(t => t.key == activeTab.value);
@@ -287,12 +326,42 @@ const doSearch = (forward = true) => {
 	}
 };
 
-const searchHotkey = (e: KeyboardEvent) => {
-	if (e.ctrlKey && e.key == 'f') {
-		showSearch();
-		doSearch();
+const handleShortcut = (shortcut: Shortcut) => {
+	const index = tabs.value.findIndex(t => t.key == activeTab.value);
+	if (shortcut == 'find') {
+		if (activeTab.value) {
+			showSearch();
+			doSearch();
+		}
+	} else if (shortcut == 'new-tab') {
+		emit('new-tab');
+	} else if (shortcut == 'close-tab') {
+		if (activeTab.value) {
+			closeTab(activeTab.value);
+		}
+	} else if (shortcut == 'next-tab' || shortcut == 'previous-tab') {
+		if (tabs.value.length) {
+			const step = shortcut == 'next-tab' ? 1 : -1;
+			activeTab.value = tabs.value[(index + step + tabs.value.length) % tabs.value.length].key;
+		}
+	} else {
+		// tab-1..8, tab-9 is the last one
+		const n = Number(shortcut.substring(4));
+		const tab = n == 9 ? tabs.value[tabs.value.length - 1] : tabs.value[n - 1];
+		if (tab) {
+			activeTab.value = tab.key;
+		}
 	}
-}
+};
+
+// key presses outside of phpMyAdmin, not while a dialog has the focus
+const shortcutHotkey = (e: KeyboardEvent) => {
+	const shortcut = shortcutOf(e);
+	if (shortcut && !(e.target as HTMLElement)?.closest?.('#modals')) {
+		e.preventDefault();
+		handleShortcut(shortcut);
+	}
+};
 const searchInputKeydown = (e: KeyboardEvent) => {
 	if (e.key == 'Escape') {
 		searchLastInput.value = searchInput.value?.value || '';
@@ -308,12 +377,14 @@ const searchInputEnter = (e: KeyboardEvent) => {
 // url of the php server serving phpMyAdmin
 const pmaUrl = ref('');
 onMounted(async () => {
-	pmaUrl.value = await (<any>window).electronAPI?.getPMAUrl() || '';
-	document.addEventListener('keydown', searchHotkey);
+	pmaUrl.value = await window.electronAPI?.getPMAUrl() || '';
+	// the webviews load their pages from the new url
+	window.electronAPI?.onPMAUrlChanged(url => pmaUrl.value = url);
+	document.addEventListener('keydown', shortcutHotkey);
 	searchInput.value?.addEventListener('keydown', searchInputKeydown)
 });
 onUnmounted(() => {
-	document.removeEventListener('keydown', searchHotkey);
+	document.removeEventListener('keydown', shortcutHotkey);
 	searchInput.value?.removeEventListener('keydown', searchInputKeydown)
 })
 
@@ -369,7 +440,7 @@ watch(activeTab, (key, oldKey) => {
 	}
 });
 onMounted(() => {
-	(<any>window).electronAPI?.onPMAThemeChanged(({ reloadActive }: { reloadActive: boolean }) => {
+	window.electronAPI?.onPMAThemeChanged(({ reloadActive }: { reloadActive: boolean }) => {
 		tabs.value.forEach(tab => {
 			if (tab.key != activeTab.value || reloadActive) {
 				reloadWebview(tab.key);
@@ -388,7 +459,12 @@ watch(() => tabs.value.map(t => t.server), (servers, oldServers) => {
 	});
 });
 
-defineExpose({ newTab });
+// after a new password was entered
+const reloadServer = (server: number) => {
+	tabs.value.filter(t => t.server == server).forEach(t => reloadWebview(t.key));
+};
+
+defineExpose({ newTab, reloadServer });
 </script>
 
 <style lang="scss">

@@ -46,6 +46,10 @@
 							</div>
 						</div>
 						<div class="c-cman__field">
+							<label>MySQL host<br><small>(seen from the ssh host)</small></label>
+							<input name="mysql_host" v-model="selected.mysql_host" placeholder="127.0.0.1">
+						</div>
+						<div class="c-cman__field">
 							<label>MySQL port</label>
 							<input name="mysql_port" v-model="selected.mysql_port" placeholder="3306">
 						</div>
@@ -71,18 +75,18 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, onMounted, ref, Ref, toRaw, unref } from 'vue';
+import { nextTick, ref, Ref, toRaw, unref } from 'vue';
 import { useStore } from '../store';
 const store = useStore();
 
-let showModal = ref(false);
+const showModal = ref(false);
 const list = ref<HTMLElement|null>(null);
 const selected:Ref<Connection|undefined> = ref();
 
-let connections:Ref<Array<Connection>> = ref([]);
+const connections:Ref<Array<Connection>> = ref([]);
 
 const fetchConnections = async () => {
-	store.connections = await (<any>window).electronAPI.getConnections();
+	store.connections = await window.electronAPI?.getConnections() ?? [];
 	connections.value = JSON.parse(JSON.stringify(store.connections));
 	connections.value.forEach(c => {
 		c.favorite = !!c.favorite;
@@ -116,7 +120,7 @@ const add = async() => {
 
 const remove = async() => {
 	if (selected.value?.id) {
-		await (<any>window).electronAPI.deleteConnection(selected.value.id);
+		await window.electronAPI?.deleteConnection(selected.value.id);
 	}
 	fetchConnections();
 }
@@ -125,7 +129,7 @@ const save = async () => {
 	const c = toRaw(unref(selected));
 	if (c) {
 		// c.favorite = c.favorite ? 1 : 0;
-		await (<any>window).electronAPI.saveConnection(c);
+		await window.electronAPI?.saveConnection(c);
 		await fetchConnections();
 	}
 }

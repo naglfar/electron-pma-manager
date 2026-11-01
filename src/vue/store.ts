@@ -4,18 +4,20 @@ import { defineStore } from 'pinia';
 export const useStore = defineStore('store', () => {
 	const activeTab = ref('');
 	const connections: Ref<Array<Connection>> = ref([]);
-	const settings: Ref<Map<String, String>> = ref(new Map());
-	const pmaOptions: Ref<Map<String, Array<PMAOption>>> = ref(new Map);
+	const settings: Ref<Map<string, Settings[string]>> = ref(new Map());
+	const pmaOptions: Ref<Map<string, Array<PMAOption>>> = ref(new Map);
 	const saveSettings = async () => {
-		if ((<any>window).electronAPI) {
-			await (<any>window).electronAPI.saveSettings(Object.fromEntries((toRaw(unref(settings)))));
+		if (window.electronAPI) {
+			await window.electronAPI.saveSettings(Object.fromEntries((toRaw(unref(settings)))));
+			// the main process may reject values, e.g. an unusable port
+			settings.value = new Map(Object.entries(await window.electronAPI.getSettings()));
 		}
 	}
 	const init = async() => {
-		if ((<any>window).electronAPI) {
-			const s = await (<any>window).electronAPI.getSettings();
+		if (window.electronAPI) {
+			const s = await window.electronAPI.getSettings();
 			settings.value = new Map(Object.entries(s));
-			const pmao = await (<any>window).electronAPI.getPMAOptions();
+			const pmao = await window.electronAPI.getPMAOptions();
 			pmaOptions.value = new Map(Object.entries(pmao));
 		}
 	}

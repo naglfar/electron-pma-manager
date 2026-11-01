@@ -3,7 +3,7 @@
 // Session and security settings of the phpMyAdmin webviews
 
 const path = require('path');
-const { app, session, shell } = require('electron');
+const { app, session, shell, nativeTheme } = require('electron');
 const phpServer = require('./php-server');
 
 // in memory, separate from the ui; Tabs.vue uses the same partition
@@ -18,6 +18,50 @@ const openExternal = (url) => {
 	if (/^https?:\/\//.test(url) && !phpServer.isServerUrl(url)) {
 		shell.openExternal(url);
 	}
+};
+
+// web preferences of everything showing phpMyAdmin: webviews and their windows
+const pmaWebPreferences = () => ({
+	partition: PARTITION,
+	preload: path.join(__dirname, 'webview-preload.js'),
+	nodeIntegration: false,
+	contextIsolation: true,
+	sandbox: true,
+});
+
+// phpMyAdmin in a webview or a window of its own: links leaving phpMyAdmin
+// (documentation, url.php) open in the browser, phpMyAdmin pages open in a new window
+// (e.g. print views), which gets the same rules
+const restrictPMAContents = (contents) => {
+	contents.setWindowOpenHandler(({ url }) => {
+		if (phpServer.isServerUrl(url)) {
+			return {
+				action: 'allow',
+				overrideBrowserWindowOptions: {
+					// shown when the page is ready, no white flash
+					show: false,
+					autoHideMenuBar: true,
+					icon: path.join(__dirname, 'icon.png'),
+					backgroundColor: nativeTheme.shouldUseDarkColors ? '#202124' : '#ffffff',
+					webPreferences: pmaWebPreferences(),
+				},
+			};
+		}
+		openExternal(url);
+		return { action: 'deny' };
+	});
+	contents.on('did-create-window', (window) => {
+		restrictPMAContents(window.webContents);
+		window.once('ready-to-show', () => window.show());
+	});
+	const keepInside = (event, url) => {
+		if (!phpServer.isServerUrl(url)) {
+			event.preventDefault();
+			openExternal(url);
+		}
+	};
+	contents.on('will-navigate', keepInside);
+	contents.on('will-redirect', keepInside);
 };
 
 // getColorScheme: () => 'light' | 'dark'
@@ -61,32 +105,14 @@ const setup = ({ getColorScheme, getCredentials }) => {
 		// the renderer can't choose preload, partition or urls of webviews
 		contents.on('will-attach-webview', (event, webPreferences, params) => {
 			delete webPreferences.preloadURL;
-			webPreferences.preload = path.join(__dirname, 'webview-preload.js');
-			webPreferences.nodeIntegration = false;
-			webPreferences.contextIsolation = true;
-			webPreferences.sandbox = true;
+			Object.assign(webPreferences, pmaWebPreferences());
 			if (params.partition !== PARTITION || !phpServer.isServerUrl(params.src)) {
 				console.error('Blocked webview', params.src);
 				event.preventDefault();
 			}
 		});
 
-		// links leaving phpMyAdmin (documentation, url.php) open in the browser,
-		// new windows are never created (the webviews allow popups only to get here)
-		contents.on('did-attach-webview', (event, guest) => {
-			guest.setWindowOpenHandler(({ url }) => {
-				openExternal(url);
-				return { action: 'deny' };
-			});
-			const keepInside = (event, url) => {
-				if (!phpServer.isServerUrl(url)) {
-					event.preventDefault();
-					openExternal(url);
-				}
-			};
-			guest.on('will-navigate', keepInside);
-			guest.on('will-redirect', keepInside);
-		});
+		contents.on('did-attach-webview', (event, guest) => restrictPMAContents(guest));
 	});
 };
 

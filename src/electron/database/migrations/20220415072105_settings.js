@@ -1,5 +1,3 @@
-const knex = require('knex');
-
 module.exports = {
 	up: async knex => {
 		return knex.schema

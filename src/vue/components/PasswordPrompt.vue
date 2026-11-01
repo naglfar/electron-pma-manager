@@ -7,6 +7,7 @@
 			<label class="c-password__label" for="c-password__input">
 				MySQL password for <strong>{{ name }}</strong>
 			</label>
+			<div class="c-password__message" v-if="message">{{ message }}</div>
 			<input
 				id="c-password__input"
 				ref="input"
@@ -29,6 +30,7 @@ import { nextTick, ref } from 'vue';
 
 const showModal = ref(false);
 const name = ref('');
+const message = ref('');
 const password = ref('');
 const input = ref<HTMLInputElement | null>(null);
 let resolvePrompt: ((password: string | null) => void) | null = null;
@@ -43,9 +45,10 @@ const submit = () => finish(password.value);
 const cancel = () => finish(null);
 
 // resolves with the entered password, null when cancelled
-const ask = (connectionName: string): Promise<string | null> => {
+const ask = (connectionName: string, hint = ''): Promise<string | null> => {
 	resolvePrompt?.(null);
 	name.value = connectionName;
+	message.value = hint;
 	password.value = '';
 	showModal.value = true;
 	// wait for the modal to render, as in ConnectionList
@@ -67,6 +70,10 @@ defineExpose({ ask });
 		border: 1px solid var(--c-border-strong);
 		font-size: inherit;
 		font-family: inherit;
+	}
+
+	&__message {
+		color: var(--c-error-text);
 	}
 
 	&__buttons {

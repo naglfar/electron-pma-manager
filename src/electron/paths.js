@@ -1,6 +1,6 @@
 'use strict'
 
-// Must be required before anything calls app.getPath('userData') (knexfile, electron-settings).
+// Must be required before anything calls app.getPath('userData') (knexfile, app-state).
 
 const fs = require('fs');
 const path = require('path');

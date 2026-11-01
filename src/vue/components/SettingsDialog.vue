@@ -9,7 +9,7 @@
 						<div class="c-settings__field">
 							<label>Starting port</label><input v-model="settings.startingport" type="number" placeholder="4406">
 						</div>
-						<small style="position:relative; top:-6px;">First port is being used for the php server, subsequent ports will be used for ssh tunnels. Takes full effect after restart.</small>
+						<small style="position:relative; top:-6px;">First port is being used for the php server, subsequent ports will be used for ssh tunnels. Open tabs reload when it changes.</small>
 						<div class="c-settings__field">
 							<label>UI Theme</label>
 							<select v-model="settings.uitheme">
@@ -97,24 +97,29 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, Ref, toRaw, unref, watch, watchEffect } from 'vue';
-// @ts-ignore
+import { ref, Ref, toRaw, watch } from 'vue';
 import {Tabs, Tab} from 'vue3-tabs-component';
 import { useStore } from '../store';
 const store = useStore();
 
-const settings = ref(Object.fromEntries(store.settings));
-// stored as sqlite text: '0' / '1'
-settings.value.usecontrol = ['1', 'true'].includes(String(settings.value.usecontrol));
-settings.value.uitheme = settings.value.uitheme || 'system';
-// defaults as in config.inc.php
-settings.value.theme = settings.value.theme || 'pmahomme';
-settings.value.themedark = settings.value.themedark || 'boodark';
+const settings: Ref<Settings> = ref({});
 const pmaSettings: Ref<Array<{[key: string]: string}>> = ref([]);
-Object.keys(settings.value).filter(s => s.startsWith('pma.')).forEach(s => {
-	pmaSettings.value.push({key: s.substring(4), value: settings.value[s] });
-})
-pmaSettings.value.push({key: '', value: ''});
+
+// from the store, on every opening: the main process may have changed values
+const loadSettings = () => {
+	settings.value = Object.fromEntries(store.settings);
+	// stored as sqlite text: '0' / '1'
+	settings.value.usecontrol = ['1', 'true'].includes(String(settings.value.usecontrol));
+	settings.value.uitheme = settings.value.uitheme || 'system';
+	// defaults as in config.inc.php
+	settings.value.theme = settings.value.theme || 'pmahomme';
+	settings.value.themedark = settings.value.themedark || 'boodark';
+	pmaSettings.value = Object.keys(settings.value)
+		.filter(s => s.startsWith('pma.'))
+		.map(s => ({ key: s.substring(4), value: String(settings.value[s] ?? '') }));
+	pmaSettings.value.push({key: '', value: ''});
+};
+loadSettings();
 watch(pmaSettings, () => {
 	let index = pmaSettings.value.findIndex(s => s.key == '' && s.value == '');
 	while(index != -1 && index != pmaSettings.value.length - 1) {
@@ -135,12 +140,15 @@ const pmaVersion = ref({
 	error: false,
 	message: '',
 });
-const api = (<any>window).electronAPI;
+const api = window.electronAPI;
 
 // apply the theme right away, it is saved when the dialog closes
-watch(() => settings.value.uitheme, (theme) => api?.setUITheme(theme));
+watch(() => settings.value.uitheme, (theme) => api?.setUITheme(String(theme)));
 
 const checkUpdate = async () => {
+	if (!api) {
+		return;
+	}
 	pmaVersion.value.busy = true;
 	pmaVersion.value.error = false;
 	pmaVersion.value.message = 'Checking…';
@@ -159,6 +167,9 @@ const checkUpdate = async () => {
 };
 
 const update = async () => {
+	if (!api) {
+		return;
+	}
 	pmaVersion.value.busy = true;
 	pmaVersion.value.error = false;
 	try {
@@ -180,9 +191,10 @@ if (api) {
 	});
 }
 
-let showModal = ref(false);
+const showModal = ref(false);
 
 const show = async () => {
+	loadSettings();
 	showModal.value = true;
 	if (api) {
 		store.pmaOptions = new Map(Object.entries(await api.getPMAOptions()));
@@ -192,7 +204,7 @@ const show = async () => {
 	}
 }
 const close = () => {
-	for (let [key, value] of Object.entries(settings.value)) {
+	for (const key of Object.keys(settings.value)) {
 		if (key.startsWith('pma.')) {
 			delete (settings.value[key]);
 		}
@@ -211,17 +223,6 @@ const close = () => {
 defineExpose({ show });
 </script>
 
-<style lang="scss">
-// FIXME no scoping
-.tabs-component {
-	&-panels {
-		flex: 1;
-		display: flex;
-		flex-direction: column;
-		max-height: 100%;
-	}
-}
-</style>
 <style lang="scss" scoped>
 
 .c-settings {
@@ -239,6 +240,14 @@ defineExpose({ show });
 		display: flex;
 		flex-direction: column;
 		max-height: 88%;
+
+		// inside vue3-tabs-component, not reached by scoped styles otherwise
+		:deep(.tabs-component-panels) {
+			flex: 1;
+			display: flex;
+			flex-direction: column;
+			max-height: 100%;
+		}
 
 		&-panel {
 			display: flex;

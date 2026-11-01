@@ -1,5 +1,10 @@
 <template>
-	<Tabs ref="tabs" @close-server="closeConnection">
+	<Tabs
+		ref="tabs"
+		@close-server="closeConnection"
+		@new-tab="connectionList?.show()"
+		@access-denied="retryPassword"
+	>
 		<template #after>
 			<button class="btn" @click="connectionList?.show()">+</button>
 		</template>
@@ -33,8 +38,8 @@ const store = useStore();
 
 const newConnection = async (id: number) => {
 	const connection = store.connections.find(c => c.id == id);
-	if (connection) {
-		const api = (<any>window).electronAPI;
+	const api = window.electronAPI;
+	if (connection && api) {
 		try {
 			// "ask on connect": the password is only kept by the main process while the connection is open
 			let password: string | undefined;
@@ -48,17 +53,45 @@ const newConnection = async (id: number) => {
 			// phpMyAdmin server index, errors are shown by the main process
 			const server: number = await api.newConnection({ id: connection.id }, password);
 			tabs.value?.newTab(connection.name, server);
-		} catch (e) {}
+		} catch (e) {
+			// shown by the main process
+		}
 	}
 }
 
+// rejected "ask on connect" password: ask again, once for all tabs of the connection
+const retrying = new Set<number>();
+const retryPassword = async (id: number) => {
+	const api = window.electronAPI;
+	const connection = store.connections.find(c => c.id == id);
+	if (!api || !connection || retrying.has(id)) {
+		return;
+	}
+	retrying.add(id);
+	try {
+		await api.forgetPassword(id);
+		// only "ask on connect" connections need a password now
+		if (await api.connectionNeedsPassword(id)) {
+			const entered = await passwordPrompt.value?.ask(connection.name, 'The password was rejected.');
+			if (entered != null) {
+				await api.newConnection({ id }, entered);
+				tabs.value?.reloadServer(id);
+			}
+		}
+	} catch (e) {
+		// shown by the main process
+	} finally {
+		retrying.delete(id);
+	}
+};
+
 const closeConnection = async (id: number) => {
-	await (<any>window).electronAPI?.closeConnection(id);
+	await window.electronAPI?.closeConnection(id);
 }
 
 onMounted(async () => {
-	if ((<any>window).electronAPI) {
-		store.connections = await (<any>window).electronAPI.getConnections();
+	if (window.electronAPI) {
+		store.connections = await window.electronAPI.getConnections();
 		const favorites = store.connections.filter((c) => c.favorite);
 		// one after another, connections may ask for a password
 		for (const c of favorites) {

@@ -8,7 +8,7 @@ const phpServer = require('./php-server');
 const { TunnelManager } = require('./tunnels');
 const pmaSession = require('./pma-session');
 const secrets = require('./secrets');
-const electronSettings = require('electron-settings');
+const appState = require('./app-state');
 const knex = require('knex');
 
 const isDevelopment = process.env.NODE_ENV === 'dev';
@@ -26,7 +26,7 @@ const connectionPasswords = new Map();
 let controlPassword = '';
 
 // columns the renderer may save
-const CONNECTION_COLUMNS = ['id', 'name', 'mysql_user', 'mysql_password', 'mysql_password_ask', 'mysql_port', 'ssh_host', 'favorite'];
+const CONNECTION_COLUMNS = ['id', 'name', 'mysql_user', 'mysql_password', 'mysql_password_ask', 'mysql_host', 'mysql_port', 'ssh_host', 'favorite'];
 
 const getPHPPort = () => parseInt(settings.startingport, 10) || 4406;
 
@@ -61,8 +61,8 @@ const windowStateKeeper = async (windowName) => {
 
 	const setBounds = async () => {
 		 // Restore from appConfig
-		 if (await electronSettings.has(`windowState.${windowName}`)) {
-			  windowState = await electronSettings.get(`windowState.${windowName}`);
+		 if (appState.get(`windowState.${windowName}`)) {
+			  windowState = appState.get(`windowState.${windowName}`);
 			  return;
 		 }
 
@@ -82,7 +82,7 @@ const windowStateKeeper = async (windowName) => {
 			  windowState = window.getBounds();
 		 }
 		 windowState.isMaximized = window.isMaximized();
-		 await electronSettings.set(`windowState.${windowName}`, windowState);
+		 appState.set(`windowState.${windowName}`, windowState);
 	};
 
 	// resizing and moving fire many events, save once they stop
@@ -147,6 +147,8 @@ async function createMainWindow() {
 		tunnelManager.closeAll();
 	});
 	mainWindow = win;
+	// also closes the windows phpMyAdmin opened, see pma-session.js
+	win.on('closed', quit);
 
 	if (isDevelopment) {
 		// set by scripts/dev.mjs
@@ -165,6 +167,14 @@ const registerIPC = () => {
 	ipcMain.handle('connection-needs-password', async (event, connectionId) => {
 		const row = await dbInstance.table('connections').where({ id: connectionId }).first();
 		return !!row?.mysql_password_ask && !connectionPasswords.has(connectionId);
+	});
+
+	// the entered password was rejected by mysql, the next new-connection needs a new one
+	ipcMain.handle('forget-password', async (event, connectionId) => {
+		const row = await dbInstance.table('connections').where({ id: connectionId }).first();
+		if (row?.mysql_password_ask) {
+			connectionPasswords.delete(connectionId);
+		}
 	});
 
 	// opens the tunnel if necessary, returns the phpMyAdmin server index
@@ -208,7 +218,7 @@ const registerIPC = () => {
 		const connection = Object.fromEntries(CONNECTION_COLUMNS.filter(key => key in data).map(key => [key, data[key]]));
 		// a changed host or port needs a new tunnel
 		const old = await dbInstance.table('connections').where({ id: connection.id }).first();
-		if (old && (old.ssh_host != connection.ssh_host || old.mysql_port != connection.mysql_port)) {
+		if (old && ['ssh_host', 'mysql_host', 'mysql_port'].some(key => (old[key] || '') != (connection[key] || ''))) {
 			connectionPasswords.delete(connection.id);
 			await tunnelManager.close(connection.id);
 		}
@@ -258,6 +268,7 @@ const registerIPC = () => {
 
 	ipcMain.handle('save-settings', async (event, s) => {
 		const themeChanged = ['uitheme', 'theme', 'themedark'].some(key => settings[key] != s[key]);
+		const oldPort = getPHPPort();
 		if (!s.controlpass && settings.controlpass && !await secrets.canDecrypt(settings.controlpass)) {
 			// not decryptable right now (e.g. locked keychain), the dialog showed it empty: keep it
 			s = { ...s, controlpass: settings.controlpass };
@@ -268,6 +279,9 @@ const registerIPC = () => {
 		applyUITheme(settings.uitheme);
 		if (themeChanged) {
 			notifyPMAThemeChanged(true);
+		}
+		if (getPHPPort() != oldPort && !await movePHPServer(oldPort)) {
+			settings.startingport = String(oldPort);
 		}
 		const query = dbInstance.table('settings');
 		const keys = [];
@@ -338,6 +352,27 @@ const confirmHostKey = async (info) => {
 			+ `If the change is expected, remove the old key with:\n\nssh-keygen -R '${info.host}'`,
 	});
 	return false;
+};
+
+// changed starting port: restart the php server there, the tabs follow (pma-url-changed),
+// open tunnels keep their ports. Returns false and stays on the old port if the new one fails.
+const movePHPServer = async (oldPort) => {
+	await phpServer.stop();
+	let moved = true;
+	try {
+		await phpServer.start(getPHPPort());
+	} catch (err) {
+		moved = false;
+		dialog.showMessageBox(mainWindow, {
+			type: 'error',
+			title: 'Port not changed',
+			message: `phpMyAdmin can't use port ${getPHPPort()}, it stays on port ${oldPort}.`,
+			detail: err.message,
+		});
+		await phpServer.start(oldPort);
+	}
+	mainWindow?.webContents.send('pma-url-changed', phpServer.getUrl());
+	return moved;
 };
 
 // plain text passwords of older versions, or encrypted with an outdated key
@@ -455,7 +490,9 @@ const notifyPMAUpdate = async () => {
 				icon: `${__dirname}/icon.png`,
 			}).show();
 		}
-	} catch (e) {}
+	} catch (e) {
+		// offline: no hint
+	}
 };
 
 // Quit when all windows are closed.

@@ -25,7 +25,8 @@ try {
 		$i = (int) $row['connection'];
 		$cfg['Servers'][$i]['verbose'] = $row['name'];
 		$cfg['Servers'][$i]['auth_type'] = 'config';
-		$cfg['Servers'][$i]['host'] = '127.0.0.1';
+		// through the local end of the ssh tunnel, or directly
+		$cfg['Servers'][$i]['host'] = $row['ssh_host'] ? '127.0.0.1' : ((string) ($row['mysql_host'] ?? '') ?: '127.0.0.1');
 		$cfg['Servers'][$i]['port'] = $row['port'];
 		$cfg['Servers'][$i]['user'] = $row['mysql_user'] ?: 'root';
 		$cfg['Servers'][$i]['password'] = (string) ($credentials['passwords'][$i] ?? '');
