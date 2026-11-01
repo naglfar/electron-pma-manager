@@ -86,7 +86,7 @@ defineExpose({ show });
 		width: 100%;
 		padding: 4px 12px;
 		border-radius: 3px;
-		border: 1px solid #444;
+		border: 1px solid var(--c-border-strong);
 		font-size: inherit;
 		font-family: inherit;
 		color: inherit;
@@ -114,18 +114,18 @@ defineExpose({ show });
 					left: 0;
 					bottom: -4px;
 					display: block;
-					border-bottom: 1px solid #ccc;
+					border-bottom: 1px solid var(--c-border);
 				}
 			}
 			&:hover {
-				background-color: #ddd;
+				background-color: var(--c-hover);
 			}
 
 			&.hide {
 				display: none;
 			}
 			&.marked {
-				background-color: #ddd;
+				background-color: var(--c-selected);
 			}
 		}
 	}

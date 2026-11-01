@@ -9,9 +9,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
 	getConnections: () => ipcRenderer.invoke('get-connections'),
 	getSettings: () => ipcRenderer.invoke('get-settings'),
 	saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
+	setUITheme: (theme) => ipcRenderer.invoke('set-ui-theme', theme),
 	getPMAOptions: () => ipcRenderer.invoke('get-pmaoptions'),
 	getDirname: () => ipcRenderer.invoke('get-dirname'),
 	pmaCheckUpdate: () => ipcRenderer.invoke('pma-check-update'),
 	pmaUpdate: (version) => ipcRenderer.invoke('pma-update', version),
 	onPMAUpdateProgress: (callback) => ipcRenderer.on('pma-update-progress', (event, data) => callback(data)),
+	onPMAThemeChanged: (callback) => ipcRenderer.on('pma-theme-changed', (event, data) => callback(data)),
 })

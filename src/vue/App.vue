@@ -59,11 +59,85 @@ onMounted(async () => {
 </script>
 
 <style lang="scss">
+// colors, dark values follow prefers-color-scheme which the main process sets from the ui theme setting
+:root {
+	color-scheme: light dark;
+
+	--c-bg: #ffffff;
+	--c-text: #444444;
+	--c-text-strong: #2c3e50;
+	--c-surface: #f1f1f1;
+	--c-surface-raised: #ffffff;
+	--c-border: #dddddd;
+	--c-border-strong: #bbbbbb;
+	--c-hover: #eeeeee;
+	--c-selected: #dddddd;
+	--c-overlay-hover: rgba(0, 0, 0, 0.1);
+	--c-shadow: rgba(0, 0, 0, 0.3);
+
+	--c-btn-bg: #444444;
+	--c-btn-text: #ffffff;
+	--c-btn-hover: #777777;
+	--c-btn2-bg: #ffffff;
+	--c-btn2-text: #444444;
+	--c-btn2-hover: #dddddd;
+
+	--c-bar: #dee1e6;
+	--c-tab-text: #45474a;
+	--c-tab-separator: #a8abb0;
+	--c-tab-hover: #e9ebee;
+	--c-tab-active: #ffffff;
+	--c-tab-active-text: #202124;
+	--c-menu-bg: #f9f9f9;
+
+	--c-subtabs-bg: #cccccc;
+	--c-subtabs-hover: #d9d9d9;
+
+	--c-error-bg: #ffdddd;
+	--c-error-text: #cc4444;
+
+	@media (prefers-color-scheme: dark) {
+		--c-bg: #202124;
+		--c-text: #d5d7da;
+		--c-text-strong: #e8eaed;
+		--c-surface: #292a2d;
+		--c-surface-raised: #35363a;
+		--c-border: #45474b;
+		--c-border-strong: #5f6368;
+		--c-hover: #3c3d41;
+		--c-selected: #4a4c50;
+		--c-overlay-hover: rgba(255, 255, 255, 0.12);
+		--c-shadow: rgba(0, 0, 0, 0.6);
+
+		--c-btn-bg: #c4c7c5;
+		--c-btn-text: #202124;
+		--c-btn-hover: #e3e3e3;
+		--c-btn2-bg: #35363a;
+		--c-btn2-text: #e3e3e3;
+		--c-btn2-hover: #4a4c50;
+
+		--c-bar: #1f2023;
+		--c-tab-text: #bdc1c6;
+		--c-tab-separator: #5f6368;
+		--c-tab-hover: #2c2d31;
+		--c-tab-active: #35363a;
+		--c-tab-active-text: #e8eaed;
+		--c-menu-bg: #292a2d;
+
+		--c-subtabs-bg: #1f2023;
+		--c-subtabs-hover: #2c2d31;
+
+		--c-error-bg: #5c2b29;
+		--c-error-text: #f28b82;
+	}
+}
+
 body, html {
+	background-color: var(--c-bg);
 	height: 100%;
 	width: 100%;
 	font-family: 'Source Sans Pro', 'Roboto', sans;
-	color: #444;
+	color: var(--c-text);
 	font-size: 16px;
 }
 #app {
@@ -71,7 +145,7 @@ body, html {
 	-webkit-font-smoothing: antialiased;
 	-moz-osx-font-smoothing: grayscale;
 	text-align: center;
-	color: #2c3e50;
+	color: var(--c-text-strong);
 	margin-top: 0;
 	height: 100%;
 	width: 100%;
@@ -95,7 +169,7 @@ body, html {
 	max-height: 90vh;
 	padding: 16px;
 	box-sizing: border-box;
-	background-color: #f1f1f1;
+	background-color: var(--c-surface);
 	border-radius: 3px;
 	overflow: hidden;
 
@@ -105,26 +179,26 @@ body, html {
 }
 
 .o-btn {
-	border: 1px solid #444;
+	border: 1px solid var(--c-btn-bg);
 	// background-color: white;
-	background-color: #444;
-	color: white;
+	background-color: var(--c-btn-bg);
+	color: var(--c-btn-text);
 	border-radius: 3px;
 	padding: 4px 12px;
 	cursor: pointer;
 	transition: background-color 0.1s, color 0.1s;
 
 	&:hover {
-		background-color: #777;
+		background-color: var(--c-btn-hover);
 		// color: #444;
 	}
 
 	&--secondary {
-		background-color: white;
-		color: #444;
+		background-color: var(--c-btn2-bg);
+		color: var(--c-btn2-text);
 
 		&:hover {
-			background-color: #ddd;
+			background-color: var(--c-btn2-hover);
 			// color: white;
 		}
 	}
@@ -139,7 +213,7 @@ body, html {
 		margin: 0;
 		padding: 6px 6px 0 6px;
 		list-style: none;
-		background-color: #ccc;
+		background-color: var(--c-subtabs-bg);
 	}
 	&-tab {
 		border-radius: 4px 4px 0 0;
@@ -148,11 +222,11 @@ body, html {
 		transition: background-color 0.1s;
 
 		&:hover {
-			background-color: #d9d9d9;
+			background-color: var(--c-subtabs-hover);
 		}
 
 		&.is-active {
-			background-color: #f1f1f1;
+			background-color: var(--c-surface);
 		}
 
 		a {

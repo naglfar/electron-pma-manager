@@ -1,7 +1,7 @@
 'use strict'
 
 const path = require('path');
-const { app, BrowserWindow, ipcMain, dialog, screen, Notification } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, screen, Notification, nativeTheme } = require('electron')
 const { paths, migrateLegacyData } = require('./paths');
 const pma = require('./pma');
 const phpServer = require('./php-server');
@@ -17,8 +17,36 @@ let dbInstance;
 let settings = {};
 let pmaOptions = {};
 let tunnelManager;
+let mainWindow;
 
 const getPHPPort = () => parseInt(settings.startingport, 10) || 4406;
+
+// 'system' follows the os, the renderer gets it as prefers-color-scheme
+const applyUITheme = (theme) => {
+	nativeTheme.themeSource = ['light', 'dark'].includes(theme) ? theme : 'system';
+};
+// phpMyAdmin renders its theme on the server, config.inc.php picks the light or dark one from this header
+const COLOR_SCHEME_HEADER = 'X-PMA-Manager-Color-Scheme';
+const colorScheme = () => nativeTheme.shouldUseDarkColors ? 'dark' : 'light';
+
+// tabs pick up a changed phpMyAdmin theme when they reload,
+// reloadActive: also the visible tab, for changes made in the settings
+const notifyPMAThemeChanged = (reloadActive) => {
+	if (mainWindow && !mainWindow.isDestroyed()) {
+		mainWindow.webContents.send('pma-theme-changed', { reloadActive });
+	}
+};
+
+let lastColorScheme;
+nativeTheme.on('updated', () => {
+	if (colorScheme() != lastColorScheme) {
+		lastColorScheme = colorScheme();
+		notifyPMAThemeChanged(false);
+	}
+});
+
+// avoids a white flash before the ui is rendered
+const windowBackground = () => nativeTheme.shouldUseDarkColors ? '#202124' : '#ffffff';
 
 const windowStateKeeper = async (windowName) => {
 	let window, windowState;
@@ -76,6 +104,7 @@ async function createMainWindow() {
 
 	const win = new BrowserWindow({
 		icon: `${__dirname}/icon.png`,
+		backgroundColor: windowBackground(),
 		fullscreen: false,
 		autoHideMenuBar: true,
 
@@ -96,6 +125,16 @@ async function createMainWindow() {
 
 	// a reload of the ui closes all tabs
 	win.webContents.on('did-navigate', () => tunnelManager.closeAll());
+	mainWindow = win;
+
+	// the webviews share the session of the main window
+	win.webContents.session.webRequest.onBeforeSendHeaders(
+		{ urls: [ '*://localhost/*', '*://127.0.0.1/*' ] },
+		(details, callback) => {
+			details.requestHeaders[COLOR_SCHEME_HEADER] = colorScheme();
+			callback({ requestHeaders: details.requestHeaders });
+		}
+	);
 
 	win.webContents.session.webRequest.onHeadersReceived(
 		{ urls: [ "*://*/*" ] },
@@ -169,8 +208,18 @@ const registerIPC = () => {
 	ipcMain.handle('get-settings', () => {
 		return settings;
 	});
+	// preview while the settings dialog is open, saved with the settings
+	ipcMain.handle('set-ui-theme', (event, theme) => {
+		applyUITheme(theme);
+	});
+
 	ipcMain.handle('save-settings', async (event, s) => {
+		const themeChanged = ['uitheme', 'theme', 'themedark'].some(key => settings[key] != s[key]);
 		settings = s;
+		applyUITheme(settings.uitheme);
+		if (themeChanged) {
+			notifyPMAThemeChanged(true);
+		}
 		const query = dbInstance.table('settings');
 		const keys = [];
 		for (let [key, value] of Object.entries(settings)) {
@@ -180,7 +229,9 @@ const registerIPC = () => {
 		await query.clone().del().whereNotIn('key', keys);
 	});
 
-	ipcMain.handle('get-pmaoptions', () => {
+	// fresh, themes may have been installed in the background
+	ipcMain.handle('get-pmaoptions', async () => {
+		pmaOptions = await phpServer.getPMAOptions();
 		return pmaOptions;
 	});
 
@@ -265,9 +316,10 @@ const createProgressWindow = async (title) => {
 		maximizable: false,
 		autoHideMenuBar: true,
 		icon: `${__dirname}/icon.png`,
+		backgroundColor: windowBackground(),
 	});
-	const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title></head>
-		<body style="font-family: sans-serif; color: #444; margin: 16px;">
+	const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="color-scheme" content="light dark"><title>${title}</title></head>
+		<body style="font-family: sans-serif; margin: 16px;">
 			<div id="step">&nbsp;</div>
 			<progress id="progress" max="1" value="0" style="width: 100%; margin-top: 12px;"></progress>
 		</body></html>`;
@@ -362,6 +414,9 @@ app.on('ready', async () => {
 		settings[s.key] = s.value;
 	});
 
+	applyUITheme(settings.uitheme);
+	lastColorScheme = colorScheme();
+
 	tunnelManager = new TunnelManager(dbInstance, () => getPHPPort() + 1, { onHostKey: confirmHostKey });
 	await tunnelManager.reset();
 
@@ -376,6 +431,8 @@ app.on('ready', async () => {
 
 	// update pma extensions if changed
 	pma.updateExtensions();
+	// e.g. installations from older versions, runs in the background
+	pma.installThemes();
 
 	try {
 		await phpServer.start(getPHPPort());

@@ -12,9 +12,10 @@
 						<small style="position:relative; top:-6px;">First port is being used for the php server, subsequent ports will be used for ssh tunnels. Takes full effect after restart.</small>
 						<div class="c-settings__field">
 							<label>UI Theme</label>
-							<select>
-								<option>Light</option>
-								<option>Dark</option>
+							<select v-model="settings.uitheme">
+								<option value="system">System</option>
+								<option value="light">Light</option>
+								<option value="dark">Dark</option>
 							</select>
 						</div>
 					</Tab>
@@ -30,15 +31,26 @@
 						<small v-if="pmaVersion.message" class="c-settings__versionmessage" :class="{ 'm--error': pmaVersion.error }">{{ pmaVersion.message }}</small>
 						<small>Most of these go into effect on new tabs / reloads, some may need a restart</small>
 						<div class="c-settings__field">
-							<label>Theme</label>
+							<label>Theme (light)</label>
 							<select v-model="settings.theme">
 								<option
 									v-for="theme in store.pmaOptions.get('themes')"
 									:key="theme.key"
-									:value="theme.key == 'pmahomme' && !settings.theme ? settings.theme : theme.key"
+									:value="theme.key"
 									v-html="theme.label" />
 							</select>
 						</div>
+						<div class="c-settings__field">
+							<label>Theme (dark)</label>
+							<select v-model="settings.themedark">
+								<option
+									v-for="theme in store.pmaOptions.get('themes')"
+									:key="theme.key"
+									:value="theme.key"
+									v-html="theme.label" />
+							</select>
+						</div>
+						<small class="c-settings__hint">Used depending on the UI theme. Open tabs reload when the theme changes.</small>
 						<div class="c-settings__field">
 							<label>Language</label>
 							<select v-model="settings.language">
@@ -94,6 +106,10 @@ const store = useStore();
 const settings = ref(Object.fromEntries(store.settings));
 // stored as sqlite text: '0' / '1'
 settings.value.usecontrol = ['1', 'true'].includes(String(settings.value.usecontrol));
+settings.value.uitheme = settings.value.uitheme || 'system';
+// defaults as in config.inc.php
+settings.value.theme = settings.value.theme || 'pmahomme';
+settings.value.themedark = settings.value.themedark || 'boodark';
 const pmaSettings: Ref<Array<{[key: string]: string}>> = ref([]);
 Object.keys(settings.value).filter(s => s.startsWith('pma.')).forEach(s => {
 	pmaSettings.value.push({key: s.substring(4), value: settings.value[s] });
@@ -120,6 +136,9 @@ const pmaVersion = ref({
 	message: '',
 });
 const api = (<any>window).electronAPI;
+
+// apply the theme right away, it is saved when the dialog closes
+watch(() => settings.value.uitheme, (theme) => api?.setUITheme(theme));
 
 const checkUpdate = async () => {
 	pmaVersion.value.busy = true;
@@ -165,8 +184,11 @@ let showModal = ref(false);
 
 const show = async () => {
 	showModal.value = true;
-	if (api && !pmaVersion.value.busy) {
-		checkUpdate();
+	if (api) {
+		store.pmaOptions = new Map(Object.entries(await api.getPMAOptions()));
+		if (!pmaVersion.value.busy) {
+			checkUpdate();
+		}
 	}
 }
 const close = () => {
@@ -260,17 +282,17 @@ defineExpose({ show });
 
 	&__pmakv {
 		width: 100%;
-		background-color: white;
-		border:1px solid #ddd;
+		background-color: var(--c-surface-raised);
+		border:1px solid var(--c-border);
 		border-spacing: 0;
 		table-layout: fixed;
 		th {
-			background-color: #f4f4f4;
-			border-bottom: 1px solid #ddd;
+			background-color: var(--c-hover);
+			border-bottom: 1px solid var(--c-border);
 			padding: 4px;
 		}
 		td {
-			border: 1px solid #ddd;
+			border: 1px solid var(--c-border);
 			input {
 				width: 100%;
 				border: 0;
@@ -279,8 +301,8 @@ defineExpose({ show });
 		}
 		tr.m--error {
 			td, input {
-				background-color: #fdd;
-				color: #c44;
+				background-color: var(--c-error-bg);
+				color: var(--c-error-text);
 			}
 		}
 	}
@@ -291,13 +313,19 @@ defineExpose({ show });
 		gap: 8px;
 	}
 
+	&__hint {
+		position: relative;
+		top: -4px;
+		margin-bottom: 6px;
+	}
+
 	&__versionmessage {
 		position: relative;
 		top: -4px;
 		margin-bottom: 6px;
 
 		&.m--error {
-			color: #c44;
+			color: var(--c-error-text);
 		}
 	}
 

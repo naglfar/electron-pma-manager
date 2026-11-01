@@ -138,7 +138,7 @@ defineExpose({ show });
 	flex-direction: row;
 	align-items: stretch;
 
-	background-color: #f1f1f1;
+	background-color: var(--c-surface);
 
 	width: 90vw;
 	height: 90vh;
@@ -155,9 +155,9 @@ defineExpose({ show });
 
 	&__list {
 		flex: 1;
-		background-color: white;
+		background-color: var(--c-surface-raised);
 		border-radius: 3px;
-		border: 1px solid #ddd;
+		border: 1px solid var(--c-border);
 
 		ul {
 			padding: 0;
@@ -180,14 +180,14 @@ defineExpose({ show });
 						left: 0;
 						bottom: -4px;
 						display: block;
-						border-bottom: 1px solid #eee;
+						border-bottom: 1px solid var(--c-hover);
 					}
 				}
 				&:hover {
-					background-color: #eee;
+					background-color: var(--c-hover);
 				}
 				&.selected {
-					background-color: #f1f1f1;
+					background-color: var(--c-selected);
 				}
 			}
 		}
@@ -214,7 +214,7 @@ defineExpose({ show });
 		flex-direction: column;
 		flex: 1;
 
-		border: 1px solid #bbb;
+		border: 1px solid var(--c-border-strong);
 		padding: 2px 8px 8px;
 		border-radius: 3px;
 

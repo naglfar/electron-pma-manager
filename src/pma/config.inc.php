@@ -52,7 +52,11 @@ $cfg['NavigationDisplayServers'] = false;
 $cfg['Lang'] = $settings['language'] ?: 'en';
 
 $cfg['ThemeManager'] = false;
-$cfg['ThemeDefault'] = $settings['theme'] ?: 'pmahomme';
+// light or dark theme, the electron process sends the active color scheme as header
+$theme = ($_SERVER['HTTP_X_PMA_MANAGER_COLOR_SCHEME'] ?? '') === 'dark'
+	? (($settings['themedark'] ?? '') ?: 'boodark')
+	: (($settings['theme'] ?? '') ?: 'pmahomme');
+$cfg['ThemeDefault'] = is_dir(__DIR__ . '/themes/' . basename($theme)) ? $theme : 'pmahomme';
 
 $cfg['MaxNavigationItems'] = 1000;
 $cfg['MaxDbList'] = 100;

@@ -301,6 +301,34 @@ onUnmounted(() => {
 	searchInput.value?.removeEventListener('keydown', searchInputKeydown)
 })
 
+// changed phpMyAdmin theme: reload hidden tabs now, the visible one when it is left
+// (or right away for changes from the settings), so no unsaved input is lost unasked
+const pendingReload = new Set<string>();
+const reloadWebview = (key: string) => {
+	pendingReload.delete(key);
+	try {
+		webviews.value[key]?.reload();
+	} catch (e) {
+		// not attached yet, it loads with the current theme anyway
+	}
+};
+watch(activeTab, (key, oldKey) => {
+	if (pendingReload.has(oldKey)) {
+		reloadWebview(oldKey);
+	}
+});
+onMounted(() => {
+	(<any>window).electronAPI?.onPMAThemeChanged(({ reloadActive }: { reloadActive: boolean }) => {
+		tabs.value.forEach(tab => {
+			if (tab.key != activeTab.value || reloadActive) {
+				reloadWebview(tab.key);
+			} else {
+				pendingReload.add(tab.key);
+			}
+		});
+	});
+});
+
 watch(() => tabs.value.map(t => t.server), (servers, oldServers) => {
 	new Set(oldServers).forEach(server => {
 		if (!servers.includes(server)) {
@@ -321,7 +349,7 @@ defineExpose({ newTab });
 
 	&__nav {
 		display: flex;
-		background: #dee1e6;
+		background: var(--c-bar);
 	}
 
 	&__bar {
@@ -348,7 +376,7 @@ defineExpose({ newTab });
 		height: 34px;
 		padding: 0 6px 0 12px;
 		border-radius: 8px 8px 0 0;
-		color: #45474a;
+		color: var(--c-tab-text);
 		font-size: 13px;
 		cursor: default;
 		user-select: none;
@@ -361,7 +389,7 @@ defineExpose({ newTab });
 			left: 0;
 			top: 9px;
 			bottom: 9px;
-			border-left: 1px solid #a8abb0;
+			border-left: 1px solid var(--c-tab-separator);
 		}
 		&.m--active + &::before,
 		&:hover + &::before,
@@ -370,12 +398,12 @@ defineExpose({ newTab });
 		}
 
 		&:hover:not(.m--active) {
-			background-color: #e9ebee;
+			background-color: var(--c-tab-hover);
 		}
 
 		&.m--active {
-			background-color: #fff;
-			color: #202124;
+			background-color: var(--c-tab-active);
+			color: var(--c-tab-active-text);
 			z-index: 1;
 		}
 
@@ -408,7 +436,7 @@ defineExpose({ newTab });
 		line-height: 18px;
 
 		&:hover {
-			background-color: rgba(0, 0, 0, 0.1);
+			background-color: var(--c-overlay-hover);
 		}
 	}
 
@@ -419,7 +447,7 @@ defineExpose({ newTab });
 		padding: 0 6px;
 
 		button {
-			background-color: #fff;
+			background-color: var(--c-tab-active);
 			border: 0;
 			border-radius: 2px;
 			aspect-ratio: 1;
@@ -427,7 +455,7 @@ defineExpose({ newTab });
 			line-height: 20px;
 
 			&:hover {
-				background-color: #f1f1f1;
+				background-color: var(--c-tab-hover);
 			}
 		}
 	}
@@ -462,7 +490,7 @@ defineExpose({ newTab });
 
 			div {
 				position: absolute;
-				outline: 5px solid #000;
+				outline: 5px solid var(--c-text-strong);
 				opacity: 1;
 				border-radius: 50%;
 				animation: lds-ripple 1s cubic-bezier(0, 0.2, 0.8, 1) infinite;
@@ -500,11 +528,11 @@ defineExpose({ newTab });
 }
 .c-menu {
 	position: relative;
-	background: #dee1e6;
+	background: var(--c-bar);
 	&__button {
 		height: calc(100% - 12px);
 		border: 0;
-		color: #444;
+		color: var(--c-text);
 		font-size: 24px;
 		line-height: 24px;
 		padding: 6px 1px 0 6px;
@@ -513,7 +541,7 @@ defineExpose({ newTab });
 		background: transparent;
 
 		&:hover {
-			background: #d1d1d1;
+			background: var(--c-overlay-hover);
 		}
 
 		&:focus + ul {
@@ -528,8 +556,8 @@ defineExpose({ newTab });
 		right: 0;
 		top: calc(100% - 6px);
 		margin: 0;
-		background-color: #f9f9f9;
-		box-shadow: 0px 0px 5px rgba(0, 0, 0, 0.3);
+		background-color: var(--c-menu-bg);
+		box-shadow: 0px 0px 5px var(--c-shadow);
 		opacity: 0;
 		transition: opacity 0.2s, z-index 0s linear 0.2s;
 		text-align: left;
@@ -540,11 +568,11 @@ defineExpose({ newTab });
 			cursor: pointer;
 
 			&:hover {
-				background-color: #eee;
+				background-color: var(--c-hover);
 			}
 
 			&.m--disabled {
-				background-color: #f9f9f9;
+				background-color: var(--c-menu-bg);
 				opacity: 0.3;
 				pointer-events: none;
 			}
@@ -552,8 +580,8 @@ defineExpose({ newTab });
 	}
 }
 .c-search {
-	background-color: #f1f1f1;
-	border-top: 1px solid #bbb;
+	background-color: var(--c-surface);
+	border-top: 1px solid var(--c-border-strong);
 	display: flex;
 	justify-content: space-between;
 	padding: 8px;

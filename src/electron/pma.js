@@ -10,10 +10,18 @@ const { pipeline } = require('stream/promises');
 const util = require('util');
 const execFile = util.promisify(require('child_process').execFile);
 const tar = require('tar');
+const AdmZip = require('adm-zip');
 const { paths } = require('./paths');
 
 const VERSION_URL = 'https://www.phpmyadmin.net/home_page/version.json';
 const DOWNLOAD_URL = 'https://files.phpmyadmin.net/phpMyAdmin';
+const THEMES_URL = 'https://files.phpmyadmin.net/themes';
+
+// third party themes installed with phpMyAdmin, pinned to verified archives
+const THEMES = [
+	// dark theme, MIT, https://github.com/adorade/boodark
+	{ name: 'boodark', version: '1.2.0', sha256: '28bc5fd187727a2800cd6e1ee9f82a59ba28a54301696fa1ef068ecf27d9d9de' },
+];
 
 // files of this app copied into the phpMyAdmin directory
 const EXTENSION_FILES = ['config.inc.php', 'pmadata.php'];
@@ -118,6 +126,68 @@ const updateExtensions = () => {
 	});
 };
 
+const isThemeInstalled = (theme, dir = paths.pma) => {
+	try {
+		const info = JSON.parse(fs.readFileSync(path.join(dir, 'themes', theme.name, 'theme.json'), 'utf8'));
+		return info.version == theme.version;
+	} catch (e) {
+		return false;
+	}
+};
+
+const installTheme = async (theme, dir = paths.pma) => {
+	const url = `${THEMES_URL}/${theme.name}/${theme.version}/${theme.name}-${theme.version}.zip`;
+	const res = await fetch(url);
+	if (!res.ok) {
+		throw new Error(`Download of ${url} failed: ${res.status}`);
+	}
+	const data = Buffer.from(await res.arrayBuffer());
+	if (crypto.createHash('sha256').update(data).digest('hex') != theme.sha256) {
+		throw new Error(`Checksum mismatch for ${url}`);
+	}
+
+	const target = path.join(dir, 'themes', theme.name);
+	const tmp = `${target}.new`;
+	fs.rmSync(tmp, { recursive: true, force: true });
+	try {
+		// only files inside the theme directory of the archive
+		const prefix = `${theme.name}/`;
+		for (const entry of new AdmZip(data).getEntries()) {
+			if (!entry.entryName.startsWith(prefix)) {
+				continue;
+			}
+			const out = path.resolve(tmp, entry.entryName.substring(prefix.length));
+			if (out != tmp && !out.startsWith(tmp + path.sep)) {
+				throw new Error(`Invalid path ${entry.entryName} in ${url}`);
+			}
+			if (entry.isDirectory) {
+				fs.mkdirSync(out, { recursive: true });
+			} else {
+				fs.mkdirSync(path.dirname(out), { recursive: true });
+				fs.writeFileSync(out, entry.getData());
+			}
+		}
+		fs.rmSync(target, { recursive: true, force: true });
+		fs.renameSync(tmp, target);
+	} finally {
+		fs.rmSync(tmp, { recursive: true, force: true });
+	}
+};
+
+// themes are optional, phpMyAdmin falls back to its own
+const installThemes = async (dir = paths.pma) => {
+	for (const theme of THEMES) {
+		if (isThemeInstalled(theme, dir)) {
+			continue;
+		}
+		try {
+			await installTheme(theme, dir);
+		} catch (e) {
+			console.error(`Installing theme ${theme.name} failed:`, e.message);
+		}
+	}
+};
+
 // download, verify and unpack a release, then swap it with the current installation
 // beforeSwap: e.g. stop the php server serving the current installation
 const install = async (version, onProgress = () => {}, beforeSwap = async () => {}) => {
@@ -148,6 +218,8 @@ const install = async (version, onProgress = () => {}, beforeSwap = async () => 
 		fs.mkdirSync(newDir);
 		await tar.x({ file: archive, cwd: newDir, strip: 1 });
 		copyExtensions(newDir);
+		onProgress('Installing themes', 1);
+		await installThemes(newDir);
 
 		await beforeSwap();
 		const hasOld = fs.existsSync(paths.pma);
@@ -174,4 +246,5 @@ module.exports = {
 	checkUpdate,
 	install,
 	updateExtensions,
+	installThemes,
 };
